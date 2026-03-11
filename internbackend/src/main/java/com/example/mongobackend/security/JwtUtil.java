@@ -11,22 +11,22 @@ import java.util.Date;
 @Component
 public class JwtUtil {
 
-    @Value("${jwt.secret:SwiftPlatformSecretKey2024!@#$%^&*()ABCDEF}")
+    @Value("${jwt.secret:SwiftPlatformSecretKey2024!@#$%^&*()ABCDEF_MUST_BE_32_CHARS_MIN}")
     private String secret;
 
-    @Value("${jwt.expiration:86400000}") // 24 hours in ms
+    @Value("${jwt.expiration:86400000}")
     private long expiration;
 
     private Key getSigningKey() {
-        byte[] keyBytes = secret.getBytes();
-        return Keys.hmacShaKeyFor(keyBytes);
+        return Keys.hmacShaKeyFor(secret.getBytes());
     }
 
-    public String generateToken(String employeeId, String role, String name) {
+    public String generateToken(String employeeId, String role, String name, String email) {
         return Jwts.builder()
                 .setSubject(employeeId)
-                .claim("role", role)
-                .claim("name", name)
+                .claim("role",  role)
+                .claim("name",  name)
+                .claim("email", email)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
@@ -41,13 +41,10 @@ public class JwtUtil {
                 .getBody();
     }
 
-    public String extractEmployeeId(String token) {
-        return extractClaims(token).getSubject();
-    }
-
-    public String extractRole(String token) {
-        return extractClaims(token).get("role", String.class);
-    }
+    public String extractEmployeeId(String token) { return extractClaims(token).getSubject(); }
+    public String extractRole(String token)        { return extractClaims(token).get("role",  String.class); }
+    public String extractName(String token)        { return extractClaims(token).get("name",  String.class); }
+    public String extractEmail(String token)       { return extractClaims(token).get("email", String.class); }
 
     public boolean isTokenValid(String token) {
         try {

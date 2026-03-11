@@ -33,7 +33,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             try {
                 if (jwtUtil.isTokenValid(token)) {
                     String employeeId = jwtUtil.extractEmployeeId(token);
-                    String role = jwtUtil.extractRole(token);
+                    String role       = jwtUtil.extractRole(token);
+                    String name       = jwtUtil.extractName(token);
+                    String email      = jwtUtil.extractEmail(token);
+
+                    request.setAttribute("employeeId", employeeId);
+                    request.setAttribute("role",       role);
+                    request.setAttribute("name",       name);
+                    request.setAttribute("email",      email);
 
                     UsernamePasswordAuthenticationToken authentication =
                             new UsernamePasswordAuthenticationToken(
@@ -43,9 +50,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                             );
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
-            } catch (Exception ignored) {
-                // Invalid token — let Spring Security handle it
-            }
+            } catch (Exception ignored) {}
         }
 
         filterChain.doFilter(request, response);

@@ -1,0 +1,121 @@
+import React, { useState } from "react";
+import { useAuth } from "../AuthContext";
+import "./css/Login.css";
+
+const API_BASE = process.env.REACT_APP_API_BASE_URL || "";
+
+export default function Login() {
+  const { login } = useAuth();
+  const [loginMode,  setLoginMode]  = useState("EMPLOYEE");
+  const [employeeId, setEmployeeId] = useState("");
+  const [password,   setPassword]   = useState("");
+  const [error,      setError]      = useState("");
+  const [isLoading,  setIsLoading]  = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (!employeeId.trim() || !password.trim()) {
+      setError("Please fill in all fields.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeId: employeeId.trim(),
+          password,
+          loginMode,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.message || "Invalid credentials. Please try again.");
+        return;
+      }
+
+      login(data); // → AuthContext sets user → App.js re-renders → Dashboard shows
+    } catch {
+      setError("Unable to connect to server. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="login-root">
+      <div className="login-card">
+
+        <div className="login-logo">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2"/>
+            <line x1="8"  y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+        </div>
+
+        <h1 className="login-title">SWIFT Platform</h1>
+        <p className="login-subtitle">Financial Messaging Intelligence</p>
+
+        {/* Employee / Admin toggle */}
+        <div className="login-toggle">
+          <button
+            type="button"
+            className={`login-toggle-btn${loginMode === "EMPLOYEE" ? " active" : ""}`}
+            onClick={() => { setLoginMode("EMPLOYEE"); setError(""); }}
+          >
+            Employee
+          </button>
+          <button
+            type="button"
+            className={`login-toggle-btn${loginMode === "ADMIN" ? " active" : ""}`}
+            onClick={() => { setLoginMode("ADMIN"); setError(""); }}
+          >
+            Admin
+          </button>
+        </div>
+
+        <form className="login-form" onSubmit={handleSubmit}>
+          <div className="login-field">
+            <label>Employee ID</label>
+            <input
+              type="text"
+              placeholder="e.g. EMP001"
+              value={employeeId}
+              onChange={e => setEmployeeId(e.target.value)}
+              autoComplete="username"
+              autoFocus
+            />
+          </div>
+
+          <div className="login-field">
+            <label>Password</label>
+            <input
+              type="password"
+              placeholder="Enter your password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              autoComplete="current-password"
+            />
+          </div>
+
+          {error && <div className="login-error">{error}</div>}
+
+          <button type="submit" className="login-submit" disabled={isLoading}>
+            {isLoading
+              ? <><span className="login-spinner"/>Signing in...</>
+              : `Sign in as ${loginMode === "EMPLOYEE" ? "Employee" : "Admin"}`
+            }
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}

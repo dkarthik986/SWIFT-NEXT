@@ -14,6 +14,7 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -272,6 +273,33 @@ public class SearchService {
                     Criteria.where("message.historyLines.description").regex(rx, "i")
             ));
         }
+
+        // ── Dynamic catch-all: any unrecognised param → exact match on message.<param>
+        // New DB fields auto-discovered by FieldConfigService become searchable here
+        // with zero backend code changes.
+        Set<String> handledParams = Set.of(
+            "messageType","messageCode","sender","receiver","country","originCountry",
+            "destinationCountry","workflow","workflowModel","owner","networkChannel",
+            "networkPriority","networkProtocol","networkStatus","deliveryMode","service",
+            "status","phase","action","reason","io","ccy","source","environment",
+            "processingType","processPriority","profileCode","originatorApplication",
+            "amlStatus","finCopyService","messagePriority","nack","copyIndicator",
+            "possibleDuplicate","crossBorder",
+            "reference","transactionReference","transferReference","relatedReference",
+            "mur","uetr","userReference","correspondent","mxInputReference",
+            "mxOutputReference","networkReference","e2eMessageId","amlDetails",
+            "startDate","endDate","valueDateFrom","valueDateTo",
+            "settlementDateFrom","settlementDateTo","statusDateFrom","statusDateTo",
+            "deliveredDateFrom","deliveredDateTo",
+            "amountFrom","amountTo","seqFrom","seqTo",
+            "historyEntity","historyDescription","freeSearchText",
+            "page","size"
+        );
+        f.forEach((param, value) -> {
+            if (!handledParams.contains(param) && notBlank(value)) {
+                criteria.add(Criteria.where("message." + param).is(value));
+            }
+        });
 
         if (criteria.isEmpty()) return new Query();
         return new Query(new Criteria().andOperator(criteria.toArray(new Criteria[0])));

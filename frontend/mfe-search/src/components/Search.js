@@ -4,7 +4,8 @@ import { useAuth } from "../AuthContext";
 
 // ── All API endpoints read from .env — no hardcoded URLs ─────────────────────
 const API_BASE_URL      = `${process.env.REACT_APP_API_BASE_URL || "http://localhost:8080"}/api/search`;
-const API_DROPDOWN_URL  = `${process.env.REACT_APP_API_BASE_URL || "http://localhost:8080"}/api/dropdown-options`;
+const API_DROPDOWN_URL   = `${process.env.REACT_APP_API_BASE_URL || "http://localhost:8080"}/api/dropdown-options`;
+const API_FIELD_CFG_URL  = `${process.env.REACT_APP_API_BASE_URL || "http://localhost:8080"}/api/search/field-config`;
 
 // ── MT/MX pair map (used for "ALL MT&MX" format) ─────────────────────────────
 const BASE_MT_MX_PAIRS = {
@@ -86,74 +87,134 @@ function highlight(text, search) {
 
 // ── Table columns ─────────────────────────────────────────────────────────────
 const COLUMNS = [
-    { key: "sequenceNumber",   label: "Seq No.",       sortable: true },
-    { key: "format",           label: "Format",        sortable: true },
-    { key: "type",             label: "Type",          sortable: true },
-    { key: "date",             label: "Date",          sortable: true },
-    { key: "time",             label: "Time",          sortable: true },
-    { key: "direction",        label: "Direction",     sortable: true },
-    { key: "network",          label: "Network",       sortable: true },
-    { key: "sourceSystem",     label: "Source System", sortable: true },
-    { key: "sender",           label: "Sender",        sortable: true },
-    { key: "receiver",         label: "Receiver",      sortable: true },
-    { key: "status",           label: "Status",        sortable: true },
-    { key: "currency",         label: "Currency",      sortable: true },
-    { key: "amount",           label: "Amount",        sortable: true },
-    { key: "userReference",    label: "User Ref",      sortable: true },
-    { key: "rfkReference",     label: "RFK Ref",       sortable: true },
-    { key: "messageReference", label: "Msg Ref",       sortable: true },
-    { key: "uetr",             label: "UETR",          sortable: true },
-    { key: "finCopy",          label: "FIN-COPY",      sortable: true },
-    { key: "action",           label: "Action",        sortable: true },
-    { key: "reason",           label: "Reason",        sortable: true },
-    { key: "correspondent",    label: "Correspondent", sortable: true },
-    { key: "ownerUnit",        label: "Owner/Unit",    sortable: true },
-    { key: "phase",            label: "Phase",         sortable: true },
-    { key: "backendChannel",   label: "Channel",       sortable: true },
+    { key: "sequenceNumber",      label: "Seq No.",         sortable: true },
+    { key: "format",              label: "Format",          sortable: true },
+    { key: "type",                label: "Type",            sortable: true },
+    { key: "date",                label: "Date",            sortable: true },
+    { key: "time",                label: "Time",            sortable: true },
+    { key: "direction",           label: "Direction",       sortable: true },
+    { key: "network",             label: "Network",         sortable: true },
+    { key: "networkStatus",       label: "Network Status",  sortable: true },
+    { key: "deliveryMode",        label: "Delivery Mode",   sortable: true },
+    { key: "service",             label: "Service",         sortable: true },
+    { key: "sourceSystem",        label: "Source System",   sortable: true },
+    { key: "sender",              label: "Sender",          sortable: true },
+    { key: "receiver",            label: "Receiver",        sortable: true },
+    { key: "correspondent",       label: "Correspondent",   sortable: true },
+    { key: "status",              label: "Status",          sortable: true },
+    { key: "currency",            label: "Currency",        sortable: true },
+    { key: "amount",              label: "Amount",          sortable: true },
+    { key: "userReference",       label: "User Ref",        sortable: true },
+    { key: "uetr",                label: "UETR",            sortable: true },
+    { key: "finCopy",             label: "FIN-COPY",        sortable: true },
+    { key: "action",              label: "Action",          sortable: true },
+    { key: "reason",              label: "Reason",          sortable: true },
+    { key: "ownerUnit",           label: "Owner/Unit",      sortable: true },
+    { key: "phase",               label: "Phase",           sortable: true },
+    { key: "backendChannel",      label: "Channel",         sortable: true },
+    { key: "processingType",      label: "Proc. Type",      sortable: true },
+    { key: "profileCode",         label: "Profile",         sortable: true },
+    { key: "amlStatus",           label: "AML Status",      sortable: true },
+    { key: "amlDetails",          label: "AML Details",     sortable: true },
+    { key: "nack",                label: "NACK",            sortable: true },
+    { key: "messagePriority",     label: "Msg Priority",    sortable: true },
+    { key: "possibleDuplicate",   label: "Dup?",            sortable: true },
+    { key: "crossBorder",         label: "Cross Border",    sortable: true },
+    { key: "workflowModel",       label: "Workflow Model",  sortable: true },
+    { key: "originCountry",       label: "Origin Country",  sortable: true },
+    { key: "destinationCountry",  label: "Dest. Country",   sortable: true },
+    { key: "valueDate",           label: "Value Date",      sortable: true },
+    { key: "settlementDate",      label: "Settlement Date", sortable: true },
 ];
 
 // ── Advanced mode: field definitions ─────────────────────────────────────────
-// stateKeys  = keys in searchState that this field controls
-// colKeys    = result table column keys auto-shown in advanced mode
-// backendParam = exact query param name sent to /api/search (matches SearchService.buildQuery)
+// Fully dynamic — every field in the DB is represented here.
+// stateKeys    = keys in searchState that this field controls
+// colKeys      = result table column keys auto-shown in advanced mode
+// backendParam = exact query param name sent to /api/search
 const FIELD_DEFINITIONS = [
-    { key: "format",               label: "Message Format",        group: "Classification", type: "select",       optKey: "formats",           placeholder: "All Formats",      stateKeys: ["format"],                                   colKeys: ["format"],           backendParam: "messageType"        },
-    { key: "type",                 label: "Message Type",          group: "Classification", type: "select-type",  optKey: null,                placeholder: "All Types",        stateKeys: ["type"],                                     colKeys: ["type"],             backendParam: "messageCode"        },
-    { key: "messageCode",          label: "Message Code",          group: "Classification", type: "select",       optKey: "messageCodes",      placeholder: "All Codes",        stateKeys: ["messageCode"],                              colKeys: ["type"],             backendParam: "messageCode"        },
-    { key: "dateRange",            label: "Date / Time Range",     group: "Date & Time",    type: "date-range",   optKey: null,                placeholder: null,               stateKeys: ["startDate","startTime","endDate","endTime"], colKeys: ["date","time"],       backendParam: "startDate,endDate"  },
-    { key: "direction",            label: "Message Direction",     group: "Classification", type: "select",       optKey: "directions",        placeholder: "All Directions",   stateKeys: ["direction"],                                colKeys: ["direction"],        backendParam: "io"                 },
-    { key: "status",               label: "Status",                group: "Classification", type: "select",       optKey: "statuses",          placeholder: "All Status",       stateKeys: ["status"],                                   colKeys: ["status"],           backendParam: "status"             },
-    { key: "network",              label: "Network",               group: "Routing",        type: "select",       optKey: "networks",          placeholder: "All Networks",     stateKeys: ["network"],                                  colKeys: ["network"],          backendParam: "networkProtocol"    },
-    { key: "sourceSystem",         label: "Source System",         group: "Routing",        type: "select",       optKey: "sourceSystems",     placeholder: "All Systems",      stateKeys: ["sourceSystem"],                             colKeys: ["sourceSystem"],     backendParam: "source"             },
-    { key: "finCopy",              label: "FIN-COPY",              group: "Classification", type: "select",       optKey: "finCopies",         placeholder: "All",              stateKeys: ["finCopy"],                                  colKeys: ["finCopy"],          backendParam: null                 },
-    { key: "currency",             label: "Currency (CCY)",        group: "Financial",      type: "select",       optKey: "currencies",        placeholder: "All Currencies",   stateKeys: ["currency"],                                 colKeys: ["currency"],         backendParam: "ccy"                },
-    { key: "ownerUnit",            label: "Owner / Unit",          group: "Routing",        type: "select",       optKey: "ownerUnits",        placeholder: "All Units",        stateKeys: ["ownerUnit"],                                colKeys: ["ownerUnit"],        backendParam: "owner"              },
-    { key: "phase",                label: "Phase",                 group: "Lifecycle",      type: "select",       optKey: "phases",            placeholder: "All Phases",       stateKeys: ["phase"],                                    colKeys: ["phase"],            backendParam: "phase"              },
-    { key: "action",               label: "Action",                group: "Lifecycle",      type: "select",       optKey: "actions",           placeholder: "All Actions",      stateKeys: ["action"],                                   colKeys: ["action"],           backendParam: "action"             },
-    { key: "backendChannel",       label: "Channel / Session",     group: "Routing",        type: "select",       optKey: "backendChannels",   placeholder: "All Channels",     stateKeys: ["backendChannel"],                           colKeys: ["backendChannel"],   backendParam: "networkChannel"     },
-    { key: "country",              label: "Country",               group: "Routing",        type: "select",       optKey: "countries",         placeholder: "All Countries",    stateKeys: ["country"],                                  colKeys: [],                   backendParam: "country"            },
-    { key: "workflow",             label: "Workflow",              group: "Routing",        type: "select",       optKey: "workflows",         placeholder: "All Workflows",    stateKeys: ["workflow"],                                 colKeys: [],                   backendParam: "workflow"           },
-    { key: "networkChannel",       label: "Network Channel",       group: "Routing",        type: "select",       optKey: "networkChannels",   placeholder: "All Channels",     stateKeys: ["networkChannel"],                           colKeys: [],                   backendParam: "networkChannel"     },
-    { key: "networkPriority",      label: "Network Priority",      group: "Routing",        type: "select",       optKey: "networkPriorities", placeholder: "All Priorities",   stateKeys: ["networkPriority"],                          colKeys: [],                   backendParam: "networkPriority"    },
-    { key: "sender",               label: "Sender BIC",            group: "Parties",        type: "text",         placeholder: "Enter Sender BIC",                              stateKeys: ["sender"],                                   colKeys: ["sender"],           backendParam: "sender"             },
-    { key: "receiver",             label: "Receiver BIC",          group: "Parties",        type: "text",         placeholder: "Enter Receiver BIC",                            stateKeys: ["receiver"],                                 colKeys: ["receiver"],         backendParam: "receiver"           },
-    { key: "userReference",        label: "User Reference (MUR)",  group: "References",     type: "text",         placeholder: "MUR",                                           stateKeys: ["userReference"],                            colKeys: ["userReference"],    backendParam: "mur"                },
-    { key: "rfkReference",         label: "RFK Reference / UMID",  group: "References",     type: "text",         placeholder: "Enter RFK Reference",                           stateKeys: ["rfkReference"],                             colKeys: ["rfkReference"],     backendParam: null                 },
-    { key: "messageReference",     label: "Message Reference",     group: "References",     type: "text",         placeholder: "Message Reference",                             stateKeys: ["messageReference"],                         colKeys: ["messageReference"], backendParam: null                 },
-    { key: "reference",            label: "Reference",             group: "References",     type: "text",         placeholder: "Reference",                                     stateKeys: ["reference"],                                colKeys: [],                   backendParam: "reference"          },
-    { key: "transactionReference", label: "Transaction Reference", group: "References",     type: "text",         placeholder: "Transaction Reference",                         stateKeys: ["transactionReference"],                     colKeys: [],                   backendParam: "transactionReference"},
-    { key: "transferReference",    label: "Transfer Reference",    group: "References",     type: "text",         placeholder: "Transfer Reference",                            stateKeys: ["transferReference"],                        colKeys: [],                   backendParam: "transferReference"  },
-    { key: "uetr",                 label: "UETR",                  group: "References",     type: "text",         placeholder: "Enter UETR (e.g. 8a562c65-...)",                stateKeys: ["uetr"],                                     colKeys: ["uetr"],             backendParam: "uetr"               },
-    { key: "reason",               label: "Reason",                group: "Lifecycle",      type: "text",         placeholder: "Enter Reason",                                  stateKeys: ["reason"],                                   colKeys: ["reason"],           backendParam: null                 },
-    { key: "correspondent",        label: "Correspondent",         group: "Parties",        type: "text",         placeholder: "Correspondent",                                 stateKeys: ["correspondent"],                            colKeys: ["correspondent"],    backendParam: null                 },
-    { key: "historyEntity",        label: "History Entity",        group: "History",        type: "text",         placeholder: "e.g. Document, Workflow",                       stateKeys: ["historyEntity"],                            colKeys: [],                   backendParam: "historyEntity"      },
-    { key: "historyDescription",   label: "History Description",   group: "History",        type: "text",         placeholder: "e.g. STP processing...",                        stateKeys: ["historyDescription"],                       colKeys: [],                   backendParam: "historyDescription" },
-    { key: "amountRange",          label: "Amount Range",          group: "Financial",      type: "amount-range", placeholder: null,                                            stateKeys: ["amountFrom","amountTo"],                    colKeys: ["amount","currency"], backendParam: "amountFrom,amountTo"     },
-    { key: "seqRange",             label: "Sequence No. Range",    group: "Reference",      type: "seq-range",    placeholder: null,                                            stateKeys: ["seqFrom","seqTo"],                          colKeys: ["sequenceNumber"],   backendParam: "seqFrom,seqTo"          },
-    { key: "freeSearchText",       label: "Free Search Text",      group: "Other",          type: "text-wide",    placeholder: "Searches across all fields...",                 stateKeys: ["freeSearchText"],                           colKeys: [],                   backendParam: "freeSearchText"     },
+    // ── Classification ────────────────────────────────────────────────────
+    { key: "format",               label: "Message Format",          group: "Classification", type: "select",       optKey: "formats",                placeholder: "All Formats",        stateKeys: ["format"],                                   colKeys: ["format"],             backendParam: "messageType"           },
+    { key: "type",                 label: "Message Type",            group: "Classification", type: "select-type",  optKey: null,                     placeholder: "All Types",          stateKeys: ["type"],                                     colKeys: ["type"],               backendParam: "messageCode"           },
+    { key: "direction",            label: "Message Direction",       group: "Classification", type: "select",       optKey: "directions",             placeholder: "All Directions",     stateKeys: ["direction"],                                colKeys: ["direction"],          backendParam: "io"                    },
+    { key: "status",               label: "Status",                  group: "Classification", type: "select",       optKey: "statuses",               placeholder: "All Statuses",       stateKeys: ["status"],                                   colKeys: ["status"],             backendParam: "status"                },
+    { key: "messagePriority",      label: "Message Priority",        group: "Classification", type: "select",       optKey: "messagePriorities",      placeholder: "All Priorities",     stateKeys: ["messagePriority"],                          colKeys: ["messagePriority"],    backendParam: "messagePriority"       },
+    { key: "copyIndicator",        label: "Copy Indicator",          group: "Classification", type: "select",       optKey: "copyIndicators",         placeholder: "All",                stateKeys: ["copyIndicator"],                            colKeys: [],                     backendParam: "copyIndicator"         },
+    { key: "finCopy",              label: "FIN-COPY Service",        group: "Classification", type: "select",       optKey: "finCopyServices",        placeholder: "All",                stateKeys: ["finCopy"],                                  colKeys: ["finCopy"],            backendParam: "finCopyService"        },
+    { key: "possibleDuplicate",    label: "Possible Duplicate",      group: "Classification", type: "select",       optKey: null,                     placeholder: "All",                stateKeys: ["possibleDuplicate"],                        colKeys: [],                     backendParam: "possibleDuplicate",  options: ["true","false"] },
+    { key: "crossBorder",          label: "Cross Border",            group: "Classification", type: "select",       optKey: null,                     placeholder: "All",                stateKeys: ["crossBorder"],                              colKeys: [],                     backendParam: "crossBorder",        options: ["true","false"] },
+
+    // ── Date & Time ───────────────────────────────────────────────────────
+    { key: "dateRange",            label: "Creation Date Range",     group: "Date & Time",    type: "date-range",   optKey: null,                     placeholder: null,                 stateKeys: ["startDate","startTime","endDate","endTime"], colKeys: ["date","time"],         backendParam: "startDate,endDate"     },
+    { key: "valueDateRange",       label: "Value Date Range",        group: "Date & Time",    type: "date-range2",  optKey: null,                     placeholder: null,                 stateKeys: ["valueDateFrom","valueDateTo"],               colKeys: ["valueDate"],          backendParam: "valueDateFrom,valueDateTo" },
+    { key: "settlementDateRange",  label: "Settlement Date Range",   group: "Date & Time",    type: "date-range2",  optKey: null,                     placeholder: null,                 stateKeys: ["settlementDateFrom","settlementDateTo"],     colKeys: ["settlementDate"],     backendParam: "settlementDateFrom,settlementDateTo" },
+    { key: "statusDateRange",      label: "Status Date Range",       group: "Date & Time",    type: "date-range2",  optKey: null,                     placeholder: null,                 stateKeys: ["statusDateFrom","statusDateTo"],             colKeys: ["statusDate"],         backendParam: "statusDateFrom,statusDateTo" },
+
+    // ── Parties ───────────────────────────────────────────────────────────
+    { key: "sender",               label: "Sender BIC",              group: "Parties",        type: "text",         placeholder: "Enter Sender BIC",                               stateKeys: ["sender"],                                   colKeys: ["sender"],             backendParam: "sender"                },
+    { key: "receiver",             label: "Receiver BIC",            group: "Parties",        type: "text",         placeholder: "Enter Receiver BIC",                             stateKeys: ["receiver"],                                 colKeys: ["receiver"],           backendParam: "receiver"              },
+    { key: "correspondent",        label: "Correspondent",           group: "Parties",        type: "text",         placeholder: "Enter Correspondent BIC",                        stateKeys: ["correspondent"],                            colKeys: ["correspondent"],      backendParam: "correspondent"         },
+
+    // ── References ────────────────────────────────────────────────────────
+    { key: "mur",                  label: "User Reference (MUR)",    group: "References",     type: "text",         placeholder: "MUR",                                            stateKeys: ["userReference"],                            colKeys: ["userReference"],      backendParam: "mur"                   },
+    { key: "reference",            label: "Reference",               group: "References",     type: "text",         placeholder: "Reference",                                      stateKeys: ["reference"],                                colKeys: [],                     backendParam: "reference"             },
+    { key: "transactionReference", label: "Transaction Reference",   group: "References",     type: "text",         placeholder: "Transaction Reference",                          stateKeys: ["transactionReference"],                     colKeys: [],                     backendParam: "transactionReference"  },
+    { key: "transferReference",    label: "Transfer Reference",      group: "References",     type: "text",         placeholder: "Transfer Reference",                             stateKeys: ["transferReference"],                        colKeys: [],                     backendParam: "transferReference"     },
+    { key: "relatedReference",     label: "Related Reference",       group: "References",     type: "text",         placeholder: "Related Reference",                              stateKeys: ["relatedReference"],                         colKeys: [],                     backendParam: "relatedReference"      },
+    { key: "uetr",                 label: "UETR",                    group: "References",     type: "text",         placeholder: "Enter UETR (e.g. 8a562c65-...)",                 stateKeys: ["uetr"],                                     colKeys: ["uetr"],               backendParam: "uetr"                  },
+    { key: "mxInputReference",     label: "MX Input Reference",      group: "References",     type: "text",         placeholder: "MX Input Reference",                             stateKeys: ["mxInputReference"],                         colKeys: [],                     backendParam: "mxInputReference"      },
+    { key: "mxOutputReference",    label: "MX Output Reference",     group: "References",     type: "text",         placeholder: "MX Output Reference",                            stateKeys: ["mxOutputReference"],                        colKeys: [],                     backendParam: "mxOutputReference"     },
+    { key: "networkReference",     label: "Network Reference",       group: "References",     type: "text",         placeholder: "Network Reference",                              stateKeys: ["networkReference"],                         colKeys: [],                     backendParam: "networkReference"      },
+    { key: "e2eMessageId",         label: "E2E Message ID",          group: "References",     type: "text",         placeholder: "End-to-End Message ID",                          stateKeys: ["e2eMessageId"],                             colKeys: [],                     backendParam: "e2eMessageId"          },
+    { key: "seqRange",             label: "Sequence No. Range",      group: "References",     type: "seq-range",    placeholder: null,                                             stateKeys: ["seqFrom","seqTo"],                          colKeys: ["sequenceNumber"],     backendParam: "seqFrom,seqTo"         },
+
+    // ── Financial ─────────────────────────────────────────────────────────
+    { key: "amountRange",          label: "Amount Range",            group: "Financial",      type: "amount-range", placeholder: null,                                             stateKeys: ["amountFrom","amountTo"],                    colKeys: ["amount","currency"],  backendParam: "amountFrom,amountTo"   },
+    { key: "currency",             label: "Currency (CCY)",          group: "Financial",      type: "select",       optKey: "currencies",             placeholder: "All Currencies",     stateKeys: ["currency"],                                 colKeys: ["currency"],           backendParam: "ccy"                   },
+
+    // ── Routing ───────────────────────────────────────────────────────────
+    { key: "network",              label: "Network Protocol",        group: "Routing",        type: "select",       optKey: "networks",               placeholder: "All Networks",       stateKeys: ["network"],                                  colKeys: ["network"],            backendParam: "networkProtocol"       },
+    { key: "networkChannel",       label: "Network Channel",         group: "Routing",        type: "select",       optKey: "networkChannels",        placeholder: "All Channels",       stateKeys: ["networkChannel"],                           colKeys: ["backendChannel"],     backendParam: "networkChannel"        },
+    { key: "networkPriority",      label: "Network Priority",        group: "Routing",        type: "select",       optKey: "networkPriorities",      placeholder: "All Priorities",     stateKeys: ["networkPriority"],                          colKeys: [],                     backendParam: "networkPriority"       },
+    { key: "networkStatus",        label: "Network Status",          group: "Routing",        type: "select",       optKey: "networkStatuses",        placeholder: "All",                stateKeys: ["networkStatus"],                            colKeys: ["networkStatus"],      backendParam: "networkStatus"         },
+    { key: "deliveryMode",         label: "Delivery Mode",           group: "Routing",        type: "select",       optKey: "deliveryModes",          placeholder: "All Modes",          stateKeys: ["deliveryMode"],                             colKeys: ["deliveryMode"],       backendParam: "deliveryMode"          },
+    { key: "service",              label: "Service",                 group: "Routing",        type: "select",       optKey: "services",               placeholder: "All Services",       stateKeys: ["service"],                                  colKeys: ["service"],            backendParam: "service"               },
+    { key: "sourceSystem",         label: "Source System",           group: "Routing",        type: "select",       optKey: "sourceSystems",          placeholder: "All Systems",        stateKeys: ["sourceSystem"],                             colKeys: ["sourceSystem"],       backendParam: "source"                },
+    { key: "country",              label: "Country",                 group: "Routing",        type: "select",       optKey: "countries",              placeholder: "All Countries",      stateKeys: ["country"],                                  colKeys: [],                     backendParam: "country"               },
+    { key: "originCountry",        label: "Origin Country",          group: "Routing",        type: "select",       optKey: "originCountries",        placeholder: "All Countries",      stateKeys: ["originCountry"],                            colKeys: [],                     backendParam: "originCountry"         },
+    { key: "destinationCountry",   label: "Destination Country",     group: "Routing",        type: "select",       optKey: "destinationCountries",   placeholder: "All Countries",      stateKeys: ["destinationCountry"],                       colKeys: [],                     backendParam: "destinationCountry"    },
+
+    // ── Ownership & Workflow ──────────────────────────────────────────────
+    { key: "ownerUnit",            label: "Owner / Unit",            group: "Ownership",      type: "select",       optKey: "ownerUnits",             placeholder: "All Units",          stateKeys: ["ownerUnit"],                                colKeys: ["ownerUnit"],          backendParam: "owner"                 },
+    { key: "workflow",             label: "Workflow",                group: "Ownership",      type: "select",       optKey: "workflows",              placeholder: "All Workflows",      stateKeys: ["workflow"],                                 colKeys: [],                     backendParam: "workflow"              },
+    { key: "workflowModel",        label: "Workflow Model",          group: "Ownership",      type: "select",       optKey: "workflowModels",         placeholder: "All Models",         stateKeys: ["workflowModel"],                            colKeys: [],                     backendParam: "workflowModel"         },
+    { key: "originatorApplication",label: "Originator Application",  group: "Ownership",      type: "select",       optKey: "originatorApplications", placeholder: "All Applications",   stateKeys: ["originatorApplication"],                    colKeys: [],                     backendParam: "originatorApplication" },
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
+    { key: "phase",                label: "Phase",                   group: "Lifecycle",      type: "select",       optKey: "phases",                 placeholder: "All Phases",         stateKeys: ["phase"],                                    colKeys: ["phase"],              backendParam: "phase"                 },
+    { key: "action",               label: "Action",                  group: "Lifecycle",      type: "select",       optKey: "actions",                placeholder: "All Actions",        stateKeys: ["action"],                                   colKeys: ["action"],             backendParam: "action"                },
+    { key: "reason",               label: "Reason",                  group: "Lifecycle",      type: "select",       optKey: "reasons",                placeholder: "All Reasons",        stateKeys: ["reason"],                                   colKeys: ["reason"],             backendParam: "reason"                },
+
+    // ── Processing ────────────────────────────────────────────────────────
+    { key: "processingType",       label: "Processing Type",         group: "Processing",     type: "select",       optKey: "processingTypes",        placeholder: "All Types",          stateKeys: ["processingType"],                           colKeys: ["processingType"],     backendParam: "processingType"        },
+    { key: "processPriority",      label: "Process Priority",        group: "Processing",     type: "select",       optKey: "processPriorities",      placeholder: "All Priorities",     stateKeys: ["processPriority"],                          colKeys: [],                     backendParam: "processPriority"       },
+    { key: "profileCode",          label: "Profile Code",            group: "Processing",     type: "select",       optKey: "profileCodes",           placeholder: "All Profiles",       stateKeys: ["profileCode"],                              colKeys: [],                     backendParam: "profileCode"           },
+    { key: "environment",          label: "Environment",             group: "Processing",     type: "select",       optKey: "environments",           placeholder: "All Environments",   stateKeys: ["environment"],                              colKeys: [],                     backendParam: "environment"           },
+    { key: "nack",                 label: "NACK Code",               group: "Processing",     type: "select",       optKey: "nackCodes",              placeholder: "All",                stateKeys: ["nack"],                                     colKeys: ["nack"],               backendParam: "nack"                  },
+
+    // ── AML / Compliance ──────────────────────────────────────────────────
+    { key: "amlStatus",            label: "AML Status",              group: "Compliance",     type: "select",       optKey: "amlStatuses",            placeholder: "All Statuses",       stateKeys: ["amlStatus"],                                colKeys: ["amlStatus"],          backendParam: "amlStatus"             },
+    { key: "amlDetails",           label: "AML Details",             group: "Compliance",     type: "text",         placeholder: "AML reference...",                               stateKeys: ["amlDetails"],                               colKeys: ["amlDetails"],         backendParam: "amlDetails"            },
+
+    // ── History ───────────────────────────────────────────────────────────
+    { key: "historyEntity",        label: "History Entity",          group: "History",        type: "text",         placeholder: "e.g. Document, Workflow",                        stateKeys: ["historyEntity"],                            colKeys: [],                     backendParam: "historyEntity"         },
+    { key: "historyDescription",   label: "History Description",     group: "History",        type: "text",         placeholder: "e.g. STP processing...",                         stateKeys: ["historyDescription"],                       colKeys: [],                     backendParam: "historyDescription"    },
+
+    // ── Other ─────────────────────────────────────────────────────────────
+    { key: "freeSearchText",       label: "Free Search Text",        group: "Other",          type: "text-wide",    placeholder: "Searches across all fields...",                  stateKeys: ["freeSearchText"],                           colKeys: [],                     backendParam: "freeSearchText"        },
 ];
 
-const FIELD_GROUPS = ["Classification", "Date & Time", "Parties", "References", "Financial", "Routing", "Lifecycle", "History", "Other"];
+const FIELD_GROUPS = ["Classification", "Date & Time", "Parties", "References", "Financial", "Routing", "Ownership", "Lifecycle", "Processing", "Compliance", "History", "Other"];
 const ADV_BASE_COLS = new Set(["sequenceNumber", "format", "type", "date", "time"]);
 const SORT_NONE = null, SORT_ASC = "asc", SORT_DESC = "desc";
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -161,6 +222,7 @@ const DAYS   = ["Su","Mo","Tu","We","Th","Fr","Sa"];
 
 // ── Initial state ─────────────────────────────────────────────────────────────
 const initialSearchState = {
+    // Original fixed search fields
     format:"", type:"", messageCode:"", startDate:"", startTime:"", endDate:"", endTime:"",
     direction:"", network:"", sender:"", receiver:"", sourceSystem:"",
     status:"", currency:"", userReference:"", rfkReference:"",
@@ -169,16 +231,36 @@ const initialSearchState = {
     seqTo:"", ownerUnit:"", freeSearchText:"", backendChannel:"", phase:"",
     country:"", workflow:"", networkChannel:"", networkPriority:"",
     reference:"", transactionReference:"", transferReference:"",
-    historyEntity:"", historyDescription:""
+    historyEntity:"", historyDescription:"",
+    // Advanced-only fields
+    relatedReference:"", mxInputReference:"", mxOutputReference:"",
+    networkReference:"", e2eMessageId:"",
+    networkStatus:"", deliveryMode:"", service:"",
+    originCountry:"", destinationCountry:"",
+    workflowModel:"", originatorApplication:"",
+    processingType:"", processPriority:"", profileCode:"", environment:"", nack:"",
+    amlStatus:"", amlDetails:"",
+    messagePriority:"", copyIndicator:"", possibleDuplicate:"", crossBorder:"",
+    valueDateFrom:"", valueDateTo:"",
+    settlementDateFrom:"", settlementDateTo:"",
+    statusDateFrom:"", statusDateTo:"",
+    deliveredDateFrom:"", deliveredDateTo:"",
 };
 
 const emptyOpts = {
+    // Original
     formats:[], types:[], mtTypes:[], mxTypes:[], allMtMxTypes:[],
     networks:[], sourceSystems:[], currencies:[], ownerUnits:[],
     backendChannels:[], directions:[], statuses:[], finCopies:[], actions:[], phases:[],
     messageCodes:[], senders:[], receivers:[], countries:[],
-    workflows:[], networkChannels:[], networkPriorities:[],
-    ioDirections:[]
+    workflows:[], networkChannels:[], networkPriorities:[], ioDirections:[],
+    // New
+    networkStatuses:[], deliveryModes:[], services:[],
+    originCountries:[], destinationCountries:[],
+    workflowModels:[], originatorApplications:[],
+    processingTypes:[], processPriorities:[], profileCodes:[], environments:[],
+    amlStatuses:[], nackCodes:[], messagePriorities:[], copyIndicators:[],
+    finCopyServices:[], reasons:[],
 };
 
 // ── DateTimePicker ─────────────────────────────────────────────────────────────
@@ -760,6 +842,8 @@ function Search() {
     const [advancedFields,  setAdvancedFields]  = useState([]);
     const [showFieldPicker, setShowFieldPicker] = useState(false);
     const [fieldPickerQuery,setFieldPickerQuery]= useState("");
+    const [dynamicFields,   setDynamicFields]   = useState([]);   // loaded from /api/search/field-config
+    const [dynFieldsLoaded, setDynFieldsLoaded] = useState(false);
 
     const bottomScrollRef = useRef(null);
     const tableWrapperRef = useRef(null);
@@ -770,6 +854,43 @@ function Search() {
     const set      = (key) => (e) => setSearchState(s=>({...s,[key]:e.target.value}));
     const setField = (key,val) => setSearchState(s=>({...s,[key]:val}));
     const showToast = (msg,type="success") => { setToastMsg({msg,type}); setTimeout(()=>setToastMsg(null),3000); };
+
+    // ── Load dynamic field config from backend ───────────────────────────────
+    useEffect(()=>{
+        if (!token) return;
+        fetch(API_FIELD_CFG_URL, { headers: authHeaders() })
+            .then(r=>{ if(!r.ok) throw new Error("field-config error"); return r.json(); })
+            .then(data=>{
+                // data is FieldConfigResponse[] from backend
+                // Convert to FIELD_DEFINITIONS-compatible shape
+                const converted = data.map(f => ({
+                    key:          f.key,
+                    label:        f.label,
+                    group:        f.group,
+                    type:         f.type,
+                    optKey:       null,           // options come pre-loaded from backend
+                    _backendOpts: f.options || [], // actual option values
+                    placeholder:  f.options?.length ? `All ${f.label}` : `Enter ${f.label}`,
+                    stateKeys:    [f.key],
+                    colKeys:      f.showInTable ? [f.key] : [],
+                    backendParam: f.backendParam,
+                    columnLabel:  f.columnLabel,
+                    showInTable:  f.showInTable,
+                }));
+                setDynamicFields(converted);
+                setDynFieldsLoaded(true);
+
+                // Also extend initialSearchState with any new keys
+                const newKeys = converted.filter(f=>!(f.key in initialSearchState));
+                if (newKeys.length > 0) {
+                    const patch = {};
+                    newKeys.forEach(f => { patch[f.key] = ""; });
+                    setSearchState(s=>({...s,...patch}));
+                }
+            })
+            .catch(()=>{ setDynFieldsLoaded(true); }); // fallback to static FIELD_DEFINITIONS
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    },[token]);
 
     // ── Load dropdown options ─────────────────────────────────────────────────
     useEffect(()=>{
@@ -785,28 +906,45 @@ function Search() {
                 setOpts(prev=>({
                     ...prev,
                     ...data,
-                    formats:        data.formats          || ["MT","MX"],
-                    types:          data.messageCodes     || data.types        || [],
-                    mtTypes:        (data.messageCodes||[]).filter(c=>c.toUpperCase().startsWith("MT")).sort(),
-                    mxTypes:        (data.messageCodes||[]).filter(c=>!c.toUpperCase().startsWith("MT")).sort(),
-                    allMtMxTypes:   data.allMtMxTypes     || [],
-                    messageCodes:   data.messageCodes     || [],
-                    directions:     data.ioDirections     || data.directions   || [],
-                    statuses:       data.statuses         || [],
-                    actions:        data.actions          || [],
-                    phases:         data.phases           || [],
-                    ownerUnits:     data.owners           || data.ownerUnits   || [],
-                    backendChannels:data.networkChannels  || data.backendChannels||[],
-                    networkChannels:data.networkChannels  || [],
-                    networks:       data.networkProtocols || data.networks     || [],
-                    networkPriorities:data.networkPriorities||[],
-                    currencies:     data.currencies       || [],
-                    sourceSystems:  data.sourceSystems    || [],
-                    countries:      data.countries        || [],
-                    workflows:      data.workflows        || [],
-                    finCopies:      data.finCopies        || [],
-                    senders:        data.senders          || [],
-                    receivers:      data.receivers        || [],
+                    formats:              data.formats               || ["MT","MX"],
+                    types:                data.messageCodes          || data.types              || [],
+                    mtTypes:              (data.messageCodes||[]).filter(c=>c.toUpperCase().startsWith("MT")).sort(),
+                    mxTypes:              (data.messageCodes||[]).filter(c=>!c.toUpperCase().startsWith("MT")).sort(),
+                    allMtMxTypes:         data.allMtMxTypes          || [],
+                    messageCodes:         data.messageCodes          || [],
+                    directions:           data.ioDirections          || data.directions         || [],
+                    statuses:             data.statuses              || [],
+                    actions:              data.actions               || [],
+                    phases:               data.phases                || [],
+                    reasons:              data.reasons               || [],
+                    ownerUnits:           data.owners                || data.ownerUnits          || [],
+                    backendChannels:      data.networkChannels       || data.backendChannels     || [],
+                    networkChannels:      data.networkChannels       || [],
+                    networks:             data.networkProtocols      || data.networks            || [],
+                    networkPriorities:    data.networkPriorities     || [],
+                    networkStatuses:      data.networkStatuses       || [],
+                    deliveryModes:        data.deliveryModes         || [],
+                    services:             data.services              || [],
+                    currencies:           data.currencies            || [],
+                    sourceSystems:        data.sourceSystems         || [],
+                    countries:            data.countries             || [],
+                    originCountries:      data.originCountries       || [],
+                    destinationCountries: data.destinationCountries  || [],
+                    workflows:            data.workflows             || [],
+                    workflowModels:       data.workflowModels        || [],
+                    originatorApplications:data.originatorApplications||[],
+                    finCopies:            data.finCopies             || [],
+                    finCopyServices:      data.finCopyServices       || [],
+                    senders:              data.senders               || [],
+                    receivers:            data.receivers             || [],
+                    processingTypes:      data.processingTypes       || [],
+                    processPriorities:    data.processPriorities     || [],
+                    profileCodes:         data.profileCodes          || [],
+                    environments:         data.environments          || [],
+                    amlStatuses:          data.amlStatuses           || [],
+                    nackCodes:            data.nackCodes             || [],
+                    messagePriorities:    data.messagePriorities     || [],
+                    copyIndicators:       data.copyIndicators        || [],
                 }));
                 setOptsLoading(false);
             })
@@ -837,6 +975,17 @@ function Search() {
         if(searchState.format==="ALL MT&MX") return opts.allMtMxTypes || [];
         return opts.types || [];
     },[searchState.format, opts]);
+
+    // ── Merge dynamic fields (from backend) with static FIELD_DEFINITIONS ────────
+    // Must be declared here — before any function that references activeFieldDefs
+    const activeFieldDefs = useMemo(()=>{
+        if (dynFieldsLoaded && dynamicFields.length > 0) {
+            const dynKeys = new Set(dynamicFields.map(f=>f.key));
+            const staticOnly = FIELD_DEFINITIONS.filter(f=>!dynKeys.has(f.key));
+            return [...dynamicFields, ...staticOnly];
+        }
+        return FIELD_DEFINITIONS;
+    }, [dynFieldsLoaded, dynamicFields]);
 
     // Close dropdowns on outside click
     useEffect(()=>{
@@ -887,10 +1036,10 @@ function Search() {
 
     const removeAdvancedField = (fieldKey) => {
         setAdvancedFields(p=>p.filter(k=>k!==fieldKey));
-        const def = FIELD_DEFINITIONS.find(f=>f.key===fieldKey);
+        const def = activeFieldDefs.find(f=>f.key===fieldKey) || FIELD_DEFINITIONS.find(f=>f.key===fieldKey);
         if (def) {
             const patch = {};
-            def.stateKeys.forEach(sk=>{ patch[sk]=""; });
+            (def.stateKeys||[fieldKey]).forEach(sk=>{ patch[sk]=""; });
             setSearchState(s=>({...s,...patch}));
         }
     };
@@ -899,11 +1048,21 @@ function Search() {
         if (searchMode !== "advanced") return null;
         const colKeySet = new Set(ADV_BASE_COLS);
         advancedFields.forEach(fkey=>{
-            const def = FIELD_DEFINITIONS.find(f=>f.key===fkey);
+            const def = activeFieldDefs.find(f=>f.key===fkey) || FIELD_DEFINITIONS.find(f=>f.key===fkey);
             if (def) def.colKeys.forEach(ck=>colKeySet.add(ck));
         });
-        return COLUMNS.filter(c=>colKeySet.has(c.key));
-    },[searchMode, advancedFields]);
+        // Also add dynamically discovered columns not in static COLUMNS list
+        const extraCols = [];
+        advancedFields.forEach(fkey=>{
+            const def = activeFieldDefs.find(f=>f.key===fkey);
+            if (def && def.showInTable && def.columnLabel && !COLUMNS.find(c=>c.key===fkey)) {
+                extraCols.push({ key: fkey, label: def.columnLabel, sortable: true });
+                colKeySet.add(fkey);
+            }
+        });
+        const staticFiltered = COLUMNS.filter(c=>colKeySet.has(c.key));
+        return [...staticFiltered, ...extraCols.filter(c=>!staticFiltered.find(s=>s.key===c.key))];
+    },[searchMode, advancedFields, activeFieldDefs]);
 
     const handleClear=()=>{
         setSearchState(initialSearchState); setResult([]); setShowResult(false);
@@ -914,75 +1073,101 @@ function Search() {
         if (searchMode==="advanced") setAdvancedFields(["dateRange"]);
     };
 
-    // ── Build URL params — maps searchState fields to backend API params ───────
-    // Backend SearchService.buildQuery() accepts these exact param names:
-    //   messageType, messageCode, sender, receiver, country, workflow, owner,
-    //   networkChannel, networkPriority, networkProtocol, status, phase, action,
-    //   io, ccy, source, reference, transactionReference, transferReference,
-    //   mur, uetr, historyEntity, historyDescription, freeSearchText,
-    //   startDate, endDate, page, size
+    // ── Build URL params — maps ALL searchState fields to backend API params ────
     const buildParams = useCallback((s, page, size) => {
         const params = new URLSearchParams();
+        const d = (v) => v && v.replace(/\//g, "-");  // YYYY/MM/DD → YYYY-MM-DD
 
-        // Classification
-        if(s.format)          params.set("messageType",          s.format);
-        // messageCode wins over type (more specific)
+        // ── Classification ─────────────────────────────────────────────────
+        if(s.format)               params.set("messageType",           s.format);
         const msgCode = s.messageCode || s.type;
-        if(msgCode)           params.set("messageCode",          msgCode);
-
-        // Parties
-        if(s.sender)          params.set("sender",               s.sender);
-        if(s.receiver)        params.set("receiver",             s.receiver);
-
-        // Routing
-        if(s.country)         params.set("country",              s.country);
-        if(s.workflow)        params.set("workflow",             s.workflow);
-        // owner: ownerUnit is the UI state key
-        if(s.ownerUnit)       params.set("owner",                s.ownerUnit);
-        // networkChannel: backendChannel OR networkChannel state key
-        const netChan = s.backendChannel || s.networkChannel;
-        if(netChan)           params.set("networkChannel",       netChan);
-        if(s.networkPriority) params.set("networkPriority",      s.networkPriority);
-        // networkProtocol: network is the UI state key
-        if(s.network)         params.set("networkProtocol",      s.network);
-        if(s.sourceSystem)    params.set("source",               s.sourceSystem);
-
-        // Lifecycle
-        if(s.status)          params.set("status",               s.status);
-        if(s.phase)           params.set("phase",                s.phase);
-        if(s.action)          params.set("action",               s.action);
-
-        // Direction: io is the backend param
+        if(msgCode)                params.set("messageCode",           msgCode);
         const dirVal = s.direction || s.io;
-        if(dirVal)            params.set("io",                   dirVal);
+        if(dirVal)                 params.set("io",                    dirVal);
+        if(s.status)               params.set("status",                s.status);
+        if(s.messagePriority)      params.set("messagePriority",       s.messagePriority);
+        if(s.copyIndicator)        params.set("copyIndicator",         s.copyIndicator);
+        if(s.finCopy)              params.set("finCopyService",        s.finCopy);
+        if(s.possibleDuplicate)    params.set("possibleDuplicate",     s.possibleDuplicate);
+        if(s.crossBorder)          params.set("crossBorder",           s.crossBorder);
 
-        // Financial
-        if(s.currency)        params.set("ccy",                  s.currency);
-        // Amount range
+        // ── Parties ────────────────────────────────────────────────────────
+        if(s.sender)               params.set("sender",                s.sender);
+        if(s.receiver)             params.set("receiver",              s.receiver);
+        if(s.correspondent)        params.set("correspondent",         s.correspondent);
+
+        // ── References ────────────────────────────────────────────────────
+        if(s.reference)            params.set("reference",             s.reference);
+        if(s.transactionReference) params.set("transactionReference",  s.transactionReference);
+        if(s.transferReference)    params.set("transferReference",     s.transferReference);
+        if(s.relatedReference)     params.set("relatedReference",      s.relatedReference);
+        if(s.userReference)        params.set("mur",                   s.userReference);
+        if(s.uetr)                 params.set("uetr",                  s.uetr);
+        if(s.mxInputReference)     params.set("mxInputReference",      s.mxInputReference);
+        if(s.mxOutputReference)    params.set("mxOutputReference",     s.mxOutputReference);
+        if(s.networkReference)     params.set("networkReference",      s.networkReference);
+        if(s.e2eMessageId)         params.set("e2eMessageId",          s.e2eMessageId);
+
+        // ── Financial ─────────────────────────────────────────────────────
+        if(s.currency)             params.set("ccy",                   s.currency);
         if(s.amountFrom && !isNaN(parseFloat(s.amountFrom))) params.set("amountFrom", parseFloat(s.amountFrom));
         if(s.amountTo   && !isNaN(parseFloat(s.amountTo)))   params.set("amountTo",   parseFloat(s.amountTo));
-        // Sequence number range
-        if(s.seqFrom && !isNaN(parseInt(s.seqFrom, 10))) params.set("seqFrom", parseInt(s.seqFrom, 10));
-        if(s.seqTo   && !isNaN(parseInt(s.seqTo,   10))) params.set("seqTo",   parseInt(s.seqTo,   10));
 
-        // References (all regex-matched on backend)
-        if(s.reference)              params.set("reference",            s.reference);
-        if(s.transactionReference)   params.set("transactionReference", s.transactionReference);
-        if(s.transferReference)      params.set("transferReference",    s.transferReference);
-        // MUR maps to userReference in UI, "mur" on backend
-        if(s.userReference)          params.set("mur",                  s.userReference);
-        if(s.uetr)                   params.set("uetr",                 s.uetr);
+        // ── Routing ────────────────────────────────────────────────────────
+        if(s.network)              params.set("networkProtocol",       s.network);
+        const netChan = s.backendChannel || s.networkChannel;
+        if(netChan)                params.set("networkChannel",        netChan);
+        if(s.networkPriority)      params.set("networkPriority",       s.networkPriority);
+        if(s.networkStatus)        params.set("networkStatus",         s.networkStatus);
+        if(s.deliveryMode)         params.set("deliveryMode",          s.deliveryMode);
+        if(s.service)              params.set("service",               s.service);
+        if(s.sourceSystem)         params.set("source",                s.sourceSystem);
+        if(s.country)              params.set("country",               s.country);
+        if(s.originCountry)        params.set("originCountry",         s.originCountry);
+        if(s.destinationCountry)   params.set("destinationCountry",    s.destinationCountry);
 
-        // History
-        if(s.historyEntity)          params.set("historyEntity",        s.historyEntity);
-        if(s.historyDescription)     params.set("historyDescription",   s.historyDescription);
+        // ── Ownership & Workflow ───────────────────────────────────────────
+        if(s.ownerUnit)            params.set("owner",                 s.ownerUnit);
+        if(s.workflow)             params.set("workflow",              s.workflow);
+        if(s.workflowModel)        params.set("workflowModel",         s.workflowModel);
+        if(s.originatorApplication)params.set("originatorApplication", s.originatorApplication);
 
-        // Free text
-        if(s.freeSearchText)         params.set("freeSearchText",       s.freeSearchText);
+        // ── Lifecycle ─────────────────────────────────────────────────────
+        if(s.phase)                params.set("phase",                 s.phase);
+        if(s.action)               params.set("action",                s.action);
+        if(s.reason)               params.set("reason",                s.reason);
 
-        // Date range — backend expects ISO date strings (YYYY-MM-DD)
-        if(s.startDate) params.set("startDate", s.startDate.replace(/\//g,"-"));
-        if(s.endDate)   params.set("endDate",   s.endDate.replace(/\//g,"-"));
+        // ── Processing ────────────────────────────────────────────────────
+        if(s.processingType)       params.set("processingType",        s.processingType);
+        if(s.processPriority)      params.set("processPriority",       s.processPriority);
+        if(s.profileCode)          params.set("profileCode",           s.profileCode);
+        if(s.environment)          params.set("environment",           s.environment);
+        if(s.nack)                 params.set("nack",                  s.nack);
+
+        // ── AML / Compliance ──────────────────────────────────────────────
+        if(s.amlStatus)            params.set("amlStatus",             s.amlStatus);
+        if(s.amlDetails)           params.set("amlDetails",            s.amlDetails);
+
+        // ── Sequence range ─────────────────────────────────────────────────
+        if(s.seqFrom && !isNaN(parseInt(s.seqFrom,10))) params.set("seqFrom", parseInt(s.seqFrom,10));
+        if(s.seqTo   && !isNaN(parseInt(s.seqTo,  10))) params.set("seqTo",   parseInt(s.seqTo,  10));
+
+        // ── Date ranges ────────────────────────────────────────────────────
+        if(s.startDate)            params.set("startDate",             d(s.startDate));
+        if(s.endDate)              params.set("endDate",               d(s.endDate));
+        if(s.valueDateFrom)        params.set("valueDateFrom",         d(s.valueDateFrom));
+        if(s.valueDateTo)          params.set("valueDateTo",           d(s.valueDateTo));
+        if(s.settlementDateFrom)   params.set("settlementDateFrom",    d(s.settlementDateFrom));
+        if(s.settlementDateTo)     params.set("settlementDateTo",      d(s.settlementDateTo));
+        if(s.statusDateFrom)       params.set("statusDateFrom",        d(s.statusDateFrom));
+        if(s.statusDateTo)         params.set("statusDateTo",          d(s.statusDateTo));
+        if(s.deliveredDateFrom)    params.set("deliveredDateFrom",     d(s.deliveredDateFrom));
+        if(s.deliveredDateTo)      params.set("deliveredDateTo",       d(s.deliveredDateTo));
+
+        // ── History & free text ────────────────────────────────────────────
+        if(s.historyEntity)        params.set("historyEntity",         s.historyEntity);
+        if(s.historyDescription)   params.set("historyDescription",    s.historyDescription);
+        if(s.freeSearchText)       params.set("freeSearchText",        s.freeSearchText);
 
         params.set("page", page);
         params.set("size", size);
@@ -1031,7 +1216,17 @@ function Search() {
 
     // openModal and helpers defined in multi-window system (injected before return)
 
-    const getReference=(msg)=>msg.rfkReference||msg.userReference||msg.messageReference||`REF-${String(msg.uetr||"").slice(0,8).toUpperCase()||"UNKNOWN"}`;
+    const getReference=(msg)=>
+        msg.reference            ||
+        msg.mur                  ||
+        msg.transactionReference ||
+        msg.transferReference    ||
+        msg.relatedReference     ||
+        msg.userReference        ||
+        msg.rfkReference         ||
+        msg.messageReference     ||
+        (msg.uetr ? `UETR-${String(msg.uetr).slice(0,8).toUpperCase()}` : null) ||
+        `ID-${String(msg.id||msg.sequenceNumber||"").slice(0,10)||"UNKNOWN"}`;
 
     const saveSearch=()=>{ const name=prompt("Name this search:"); if(!name)return; setSavedSearches(p=>[...p,{name,state:{...searchState},mode:searchMode,advFields:[...advancedFields],ts:Date.now()}]); showToast(`Search "${name}" saved`); };
     const loadSearch=(s)=>{ setSearchState(s.state); if(s.mode) setSearchMode(s.mode); if(s.advFields) setAdvancedFields(s.advFields); setShowSavedPanel(false); showToast(`Loaded "${s.name}"`); };
@@ -1158,13 +1353,36 @@ function Search() {
 
     const renderCell=(col,msg)=>{
         const value=msg[col.key];
-        if(col.key==="format")         { const d=getDisplayFormat(msg); return highlightText?highlight(d,highlightText):d; }
-        if(col.key==="type")           { const d=getDisplayType(msg);   return highlightText?highlight(d,highlightText):d; }
-        if(col.key==="status")         return <span className={statusCls(value)}>{value??"—"}</span>;
-        if(col.key==="amount")         { if(value===undefined||value===null)return "—"; return Number(value).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
-        if(col.key==="direction")      return <span className={`dir-badge ${dirClass(value)}`}>{formatDirection(value)}</span>;
-        if(col.key==="sequenceNumber") return <span style={{fontFamily:"var(--mono)",fontWeight:600}}>{value??"—"}</span>;
-        return highlightText?highlight(value,highlightText):(value??"—");
+        if(col.key==="format")           { const d=getDisplayFormat(msg); return highlightText?highlight(d,highlightText):d; }
+        if(col.key==="type")             { const d=getDisplayType(msg);   return highlightText?highlight(d,highlightText):d; }
+        if(col.key==="status")           return <span className={statusCls(value)}>{value??"—"}</span>;
+        if(col.key==="amount")           { if(value===undefined||value===null)return "—"; return Number(value).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+        if(col.key==="direction")        return <span className={`dir-badge ${dirClass(value)}`}>{formatDirection(value)}</span>;
+        if(col.key==="sequenceNumber")   return <span style={{fontFamily:"var(--mono)",fontWeight:600}}>{value??"—"}</span>;
+        // ── Boolean fields — false is valid data, must not be treated as empty ──
+        if(col.key==="possibleDuplicate"||col.key==="crossBorder") {
+            if(value===true)  return <span style={{color:"var(--danger,#e24b4a)",fontWeight:600,fontSize:12}}>YES</span>;
+            if(value===false) return <span style={{color:"var(--ok,#22c55e)",fontWeight:500,fontSize:12}}>NO</span>;
+            return "—";
+        }
+        // ── AML status badge ───────────────────────────────────────────────────
+        if(col.key==="amlStatus") {
+            if(!value) return "—";
+            const color = value==="CLEAR"||value==="CLEAN" ? "var(--ok,#22c55e)"
+                        : value==="FLAGGED"||value==="HIGH" ? "var(--danger,#e24b4a)"
+                        : "var(--warn,#f97316)";
+            return <span style={{color,fontWeight:600,fontSize:12}}>{value}</span>;
+        }
+        // ── Network status badge ───────────────────────────────────────────────
+        if(col.key==="networkStatus") {
+            if(!value) return "—";
+            const color = value==="DELIVERED" ? "var(--ok,#22c55e)"
+                        : value==="FAILED"    ? "var(--danger,#e24b4a)"
+                        : "var(--warn,#f97316)";
+            return <span style={{color,fontWeight:600,fontSize:12}}>{value}</span>;
+        }
+        if(value===null||value===undefined) return "—";
+        return highlightText?highlight(value,highlightText):String(value);
     };
 
     const sortIcon=(key)=>{ if(sortKey!==key)return <span className="sort-icon sort-idle">⇅</span>; return <span className="sort-icon sort-active">{sortDir===SORT_ASC?"↑":"↓"}</span>; };
@@ -1175,21 +1393,28 @@ function Search() {
 
     // ── Advanced field renderer ────────────────────────────────────────────────
     const renderAdvancedField = (fieldKey) => {
-        const def = FIELD_DEFINITIONS.find(f=>f.key===fieldKey);
+        // First look in dynamic fields (from backend), then fall back to static
+        const def = activeFieldDefs.find(f=>f.key===fieldKey) || FIELD_DEFINITIONS.find(f=>f.key===fieldKey);
         if (!def) return null;
 
         const fieldContent = () => {
             switch(def.type) {
-                case "select":
+                case "select": {
+                    // _backendOpts = options pre-loaded from /api/search/field-config
+                    // def.options  = static inline options (true/false booleans)
+                    // def.optKey   = key into local opts state (legacy static fields)
+                    const selectOpts = def.options || def._backendOpts || (def.optKey ? opts[def.optKey] || [] : []);
+                    const isStatic   = !!(def.options || def._backendOpts);
                     return (
                         <DynSelect
-                            value={searchState[def.stateKeys[0]]}
+                            value={searchState[def.stateKeys[0]] || ""}
                             onChange={set(def.stateKeys[0])}
                             placeholder={def.placeholder}
-                            options={opts[def.optKey] || []}
-                            loading={optsLoading}
+                            options={selectOpts}
+                            loading={isStatic ? false : optsLoading}
                         />
                     );
+                }
                 case "select-type":
                     return (
                         <DynSelect
@@ -1234,6 +1459,32 @@ function Search() {
                             />
                         </div>
                     );
+                case "date-range2": {
+                    // Generic date range for valueDateFrom/To, settlementDateFrom/To etc.
+                    const fromKey = def.stateKeys[0];
+                    const toKey   = def.stateKeys[1];
+                    return (
+                        <div className="adv-date-range-wrap">
+                            <DateTimePicker
+                                label="From"
+                                dateValue={searchState[fromKey]}
+                                timeValue=""
+                                onDateChange={v=>setField(fromKey, v)}
+                                onTimeChange={()=>{}}
+                                onKeyDown={handleKeyDown}
+                            />
+                            <span className="adv-date-sep">→</span>
+                            <DateTimePicker
+                                label="To"
+                                dateValue={searchState[toKey]}
+                                timeValue=""
+                                onDateChange={v=>setField(toKey, v)}
+                                onTimeChange={()=>{}}
+                                onKeyDown={handleKeyDown}
+                            />
+                        </div>
+                    );
+                }
                 case "amount-range":
                     return (
                         <div className="adv-range-wrap">
@@ -1272,18 +1523,27 @@ function Search() {
         );
     };
 
-    const filteredFieldDefs = FIELD_DEFINITIONS.filter(f=>
+
+
+
+    // ── Field picker lists — depend on activeFieldDefs (declared above) ─────────
+    const filteredFieldDefs = activeFieldDefs.filter(f=>
         f.key !== "dateRange" &&
         !advancedFields.includes(f.key) &&
         (fieldPickerQuery==="" || f.label.toLowerCase().includes(fieldPickerQuery.toLowerCase()) || f.group.toLowerCase().includes(fieldPickerQuery.toLowerCase()))
     );
 
-    const groupedFields = FIELD_GROUPS.reduce((acc,g)=>{
+    const allGroups = useMemo(()=>{
+        const groups = new Set(FIELD_GROUPS);
+        activeFieldDefs.forEach(f=>{ if(f.group) groups.add(f.group); });
+        return [...groups];
+    }, [activeFieldDefs]);
+
+    const groupedFields = allGroups.reduce((acc,g)=>{
         const items = filteredFieldDefs.filter(f=>f.group===g);
         if (items.length) acc[g]=items;
         return acc;
     },{});
-
 
     // ══════════════════════════════════════════════════════════════════
     // MULTI-WINDOW MODAL SYSTEM
@@ -1362,7 +1622,7 @@ function Search() {
                     <div className="search-mode-toggle">
                         <button className={`mode-btn${searchMode==="fixed"?" mode-btn-active":""}`} onClick={()=>handleModeSwitch("fixed")}>
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-                            Static
+                            Fixed
                         </button>
                         <button className={`mode-btn${searchMode==="advanced"?" mode-btn-active":""}`} onClick={()=>handleModeSwitch("advanced")}>
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>

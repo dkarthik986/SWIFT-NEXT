@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "../AuthContext";
+import BrandLogo from "./BrandLogo";
 
 function getExpiry(token) {
   try {
@@ -92,11 +93,8 @@ export default function Navbar({ onOpenTab, appName = "SWIFT Platform" }) {
     <aside className={`shell-sidebar ${collapsed ? "collapsed" : ""}`}>
       {/* Brand */}
       <div className="sidebar-brand">
-        <div className="brand-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <rect x="2" y="3" width="20" height="14" rx="2"/>
-            <line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-          </svg>
+        <div className="brand-icon" style={{background:"transparent", padding:0, overflow:"hidden"}}>
+          <BrandLogo variant="sidebar" />
         </div>
         {!collapsed && (
           <div className="brand-text">

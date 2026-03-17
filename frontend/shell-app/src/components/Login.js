@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useAuth } from "../AuthContext";
+import BrandLogo from "./BrandLogo";
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:8080";
 
@@ -37,12 +38,8 @@ export default function Login({ appName = "SWIFT Platform", appSubtitle = "Finan
       <div className="login-bg-pattern" />
       <div className="login-card">
         <div className="login-header">
-          <div className="login-logo">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="3" width="20" height="14" rx="2" />
-              <line x1="8" y1="21" x2="16" y2="21" />
-              <line x1="12" y1="17" x2="12" y2="21" />
-            </svg>
+          <div className="login-logo" style={{background:"transparent", padding:0, overflow:"hidden"}}>
+            <BrandLogo variant="login" />
           </div>
           <h1 className="login-title">{appName}</h1>
           <p className="login-subtitle">{appSubtitle}</p>

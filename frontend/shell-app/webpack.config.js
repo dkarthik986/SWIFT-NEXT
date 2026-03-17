@@ -33,6 +33,11 @@ module.exports = {
         },
       },
       { test: /\.css$/, use: ["style-loader", "css-loader"] },
+      {
+        test: /\.(svg|png|jpg|jpeg|webp|avif|gif|bmp|tiff|ico)$/i,
+        type: "asset/resource",
+        generator: { filename: "assets/[hash][ext]" },
+      },
     ],
   },
   plugins: [

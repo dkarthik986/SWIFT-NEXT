@@ -112,8 +112,8 @@ public class SearchService {
         long total  = mongoTemplate.count(query, Document.class, col);
 
         query.skip((long) page * size)
-             .limit(size)
-             .with(Sort.by(Sort.Direction.DESC, "message.creationDate"));
+                .limit(size)
+                .with(Sort.by(Sort.Direction.DESC, "message.creationDate"));
 
         List<Document> docs = mongoTemplate.find(query, Document.class, col);
         List<SearchResponse> rows = docs.stream().map(this::toResponse).collect(Collectors.toList());
@@ -157,6 +157,53 @@ public class SearchService {
         else if (notBlank(ed))
             criteria.add(Criteria.where("message.creationDate").lte(ed + "T23:59:59Z"));
 
+        // ── Amount range ───────────────────────────────────────────────────────
+        String amtFrom = f.get("amountFrom"), amtTo = f.get("amountTo");
+        if (notBlank(amtFrom) && notBlank(amtTo)) {
+            try {
+                criteria.add(Criteria.where("message.amount")
+                        .gte(Double.parseDouble(amtFrom))
+                        .lte(Double.parseDouble(amtTo)));
+            } catch (NumberFormatException ignored) {}
+        } else if (notBlank(amtFrom)) {
+            try { criteria.add(Criteria.where("message.amount").gte(Double.parseDouble(amtFrom))); }
+            catch (NumberFormatException ignored) {}
+        } else if (notBlank(amtTo)) {
+            try { criteria.add(Criteria.where("message.amount").lte(Double.parseDouble(amtTo))); }
+            catch (NumberFormatException ignored) {}
+        }
+
+        // ── Sequence number range ──────────────────────────────────────────────
+        // sequenceNumber is stored as a STRING in MongoDB. We use a raw $expr with
+        // $toInt to cast at query time, making numeric range comparison work
+        // regardless of whether the field is stored as string or number.
+        String seqFrom = f.get("seqFrom"), seqTo = f.get("seqTo");
+        if (notBlank(seqFrom) || notBlank(seqTo)) {
+            try {
+                List<Document> andConds = new ArrayList<>();
+                if (notBlank(seqFrom)) {
+                    int sf = Integer.parseInt(seqFrom.trim());
+                    andConds.add(new Document("$gte", Arrays.asList(
+                            new Document("$toInt", "$message.sequenceNumber"), sf)));
+                }
+                if (notBlank(seqTo)) {
+                    int st = Integer.parseInt(seqTo.trim());
+                    andConds.add(new Document("$lte", Arrays.asList(
+                            new Document("$toInt", "$message.sequenceNumber"), st)));
+                }
+                Object exprVal = andConds.size() == 1
+                        ? andConds.get(0)
+                        : new Document("$and", andConds);
+                // Inject raw $expr into the query via a Criteria wrapping a Document
+                criteria.add(new Criteria() {
+                    @Override
+                    public Document getCriteriaObject() {
+                        return new Document("$expr", exprVal);
+                    }
+                });
+            } catch (NumberFormatException ignored) {}
+        }
+
         String he = f.get("historyEntity");
         if (notBlank(he)) criteria.add(Criteria.where("message.historyLines")
                 .elemMatch(Criteria.where("entity").regex(escapeRegex(he), "i")));
@@ -169,15 +216,15 @@ public class SearchService {
         if (notBlank(ft)) {
             String rx = escapeRegex(ft);
             criteria.add(new Criteria().orOperator(
-                Criteria.where("message.reference").regex(rx, "i"),
-                Criteria.where("message.transactionReference").regex(rx, "i"),
-                Criteria.where("message.sender").regex(rx, "i"),
-                Criteria.where("message.receiver").regex(rx, "i"),
-                Criteria.where("message.owner").regex(rx, "i"),
-                Criteria.where("message.workflow").regex(rx, "i"),
-                Criteria.where("message.status").regex(rx, "i"),
-                Criteria.where("message.statusMessage").regex(rx, "i"),
-                Criteria.where("message.historyLines.description").regex(rx, "i")
+                    Criteria.where("message.reference").regex(rx, "i"),
+                    Criteria.where("message.transactionReference").regex(rx, "i"),
+                    Criteria.where("message.sender").regex(rx, "i"),
+                    Criteria.where("message.receiver").regex(rx, "i"),
+                    Criteria.where("message.owner").regex(rx, "i"),
+                    Criteria.where("message.workflow").regex(rx, "i"),
+                    Criteria.where("message.status").regex(rx, "i"),
+                    Criteria.where("message.statusMessage").regex(rx, "i"),
+                    Criteria.where("message.historyLines.description").regex(rx, "i")
             ));
         }
 
@@ -256,9 +303,9 @@ public class SearchService {
         Object payloadsRaw = doc.get("payloads");
         if (payloadsRaw instanceof List<?> pl) {
             r.setPayloads(pl.stream()
-                .filter(p -> p instanceof Document)
-                .map(p -> new LinkedHashMap<String, Object>((Document) p))
-                .collect(Collectors.toList()));
+                    .filter(p -> p instanceof Document)
+                    .map(p -> new LinkedHashMap<String, Object>((Document) p))
+                    .collect(Collectors.toList()));
         }
         return r;
     }

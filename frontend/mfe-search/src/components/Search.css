@@ -2899,3 +2899,254 @@ mark.hl { background: var(--highlight-bg); color: var(--highlight-color); border
     color: var(--black);
     word-break: break-all;
 }
+/* ═══════════════════════════════
+   MULTI-WINDOW FLOATING MODAL SYSTEM
+═══════════════════════════════ */
+
+/* Manager layer — full viewport, pointer-events only on children */
+.modal-manager-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    pointer-events: none;
+}
+
+/* Dim backdrop — only blocks clicks outside modals */
+.modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    pointer-events: all;
+    animation: fadeOverlay 0.18s ease;
+}
+
+/* Close-all pill — bottom-center */
+.modal-close-all-btn {
+    position: absolute;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 20px;
+    background: var(--danger);
+    color: var(--white);
+    border: none;
+    border-radius: 24px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    pointer-events: all;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    font-family: var(--font);
+    transition: background 0.15s, transform 0.1s;
+    white-space: nowrap;
+    letter-spacing: 0.1px;
+    z-index: 10000;
+}
+
+.modal-close-all-btn:hover {
+    background: #b91c1c;
+    transform: translateX(-50%) translateY(-1px);
+}
+
+/* Floating modal window */
+.modal-box-floating {
+    position: absolute;
+    background: var(--white);
+    border-radius: var(--radius-lg);
+    border: 1.5px solid var(--gray-4);
+    box-shadow: 0 8px 40px rgba(0,0,0,0.22), 0 2px 10px rgba(0,0,0,0.12);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    pointer-events: all;
+    animation: slideModal 0.2s cubic-bezier(0.22,1,0.36,1);
+    min-width: 480px;
+    min-height: 360px;
+    /* Scrollbar hidden on body handled inline */
+}
+
+.modal-box-floating:focus { outline: none; }
+
+/* Active modal gets a subtle accent border */
+.modal-box-floating:focus-within {
+    border-color: var(--gray-3);
+    box-shadow: 0 12px 50px rgba(0,0,0,0.28), 0 3px 14px rgba(0,0,0,0.14);
+}
+
+/* Drag handle cursor on txn-header inside floating modal */
+.modal-drag-handle {
+    cursor: grab !important;
+    user-select: none;
+}
+
+.modal-drag-handle:active { cursor: grabbing !important; }
+
+/* txn-header-right buttons restore default cursor */
+.modal-drag-handle .txn-header-right { cursor: default; }
+
+/* Resize handles — invisible until hovered */
+.modal-resize-handle {
+    position: absolute;
+    z-index: 20;
+    background: transparent;
+    transition: background 0.15s;
+}
+
+/* Corner handles get a subtle visible indicator on hover */
+.modal-resize-handle:hover {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    border-radius: 3px;
+}
+
+/* Override: kill the old overlay-based modal since we're using floating now */
+.modal-overlay { display: none !important; }
+
+/* Tab bar lock indicator — shown when modals are blocking */
+.tab-locked-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    background: var(--warn-light);
+    border: 1px solid var(--warn-border);
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--warn);
+    white-space: nowrap;
+    pointer-events: none;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn { from { opacity:0; transform: scale(0.9); } to { opacity:1; transform: scale(1); } }
+
+/* Scrollbar for modal body */
+.modal-box-floating .txn-body::-webkit-scrollbar       { width: 5px; }
+.modal-box-floating .txn-body::-webkit-scrollbar-track { background: var(--gray-6); border-radius: 4px; }
+.modal-box-floating .txn-body::-webkit-scrollbar-thumb { background: var(--gray-4); border-radius: 4px; }
+.modal-box-floating .txn-body::-webkit-scrollbar-thumb:hover { background: var(--gray-3); }
+.modal-box-floating .txn-body { scrollbar-width: thin; scrollbar-color: var(--gray-4) var(--gray-6); }
+
+/* Ensure txn-header never shrinks */
+.modal-box-floating .txn-header {
+    flex-shrink: 0;
+    position: relative; /* override sticky — not needed in floating */
+}
+
+.modal-box-floating .txn-summary-strip { flex-shrink: 0; }
+.modal-box-floating .txn-tabs          { flex-shrink: 0; }
+
+/* ═══════════════════════════════════════════════════════════════
+   FLOATING MODAL SYSTEM (fm-*)
+   All new classes prefixed fm- to avoid any collision with
+   existing Search.css rules.
+═══════════════════════════════════════════════════════════════ */
+
+/* Full-screen layer - pointer-events none so table is still usable */
+.fm-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    pointer-events: none;
+}
+
+/* fm-backdrop removed — no overlay, table stays fully interactive */
+
+/* "Close all" pill - fixed at bottom center */
+.fm-close-all {
+    position: absolute;
+    bottom: 26px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 22px;
+    background: var(--danger);
+    color: var(--white);
+    border: none;
+    border-radius: 24px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    pointer-events: all;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.28);
+    font-family: var(--font);
+    white-space: nowrap;
+    z-index: 10000;
+    transition: background 0.15s, transform 0.1s;
+}
+.fm-close-all:hover {
+    background: #b91c1c;
+    transform: translateX(-50%) translateY(-1px);
+}
+
+/* Individual floating window */
+.fm-window {
+    position: absolute;
+    background: var(--white);
+    border-radius: var(--radius-lg);
+    border: 1.5px solid var(--gray-4);
+    box-shadow: 0 8px 40px rgba(0,0,0,0.20), 0 2px 8px rgba(0,0,0,0.10);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    pointer-events: all;
+    min-width: 500px;
+    min-height: 360px;
+    animation: slideModal 0.2s cubic-bezier(0.22,1,0.36,1);
+}
+
+/* Elevated shadow when focused/active */
+.fm-window:focus-within {
+    border-color: var(--gray-3);
+    box-shadow: 0 14px 50px rgba(0,0,0,0.26), 0 3px 12px rgba(0,0,0,0.14);
+}
+
+/* Drag header cursor */
+.fm-drag-header {
+    cursor: grab !important;
+    user-select: none;
+    flex-shrink: 0;
+    position: relative; /* override sticky - not needed in floating */
+}
+.fm-drag-header:active { cursor: grabbing !important; }
+/* Buttons inside header restore normal cursor */
+.fm-drag-header .txn-header-right,
+.fm-drag-header button { cursor: pointer !important; }
+
+/* Resize handles - invisible transparent zones at edges/corners */
+.fm-resize-handle {
+    position: absolute;
+    background: transparent;
+    z-index: 10;
+    transition: background 0.15s;
+}
+.fm-resize-handle:hover {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border-radius: 3px;
+}
+
+/* Scrollable body inside floating window */
+.fm-body {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+.fm-body::-webkit-scrollbar       { width: 5px; }
+.fm-body::-webkit-scrollbar-track { background: var(--gray-6); border-radius: 4px; }
+.fm-body::-webkit-scrollbar-thumb { background: var(--gray-4); border-radius: 4px; }
+.fm-body::-webkit-scrollbar-thumb:hover { background: var(--gray-3); }
+.fm-body { scrollbar-width: thin; scrollbar-color: var(--gray-4) var(--gray-6); }
+
+/* Summary strip and tabs must not shrink */
+.fm-window .txn-summary-strip,
+.fm-window .txn-tabs { flex-shrink: 0; }
+
+/* Hide old overlay-based modal - we use fm-window now */
+.modal-overlay { display: none !important; }

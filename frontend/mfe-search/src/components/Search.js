@@ -148,8 +148,8 @@ const FIELD_DEFINITIONS = [
     { key: "correspondent",        label: "Correspondent",         group: "Parties",        type: "text",         placeholder: "Correspondent",                                 stateKeys: ["correspondent"],                            colKeys: ["correspondent"],    backendParam: null                 },
     { key: "historyEntity",        label: "History Entity",        group: "History",        type: "text",         placeholder: "e.g. Document, Workflow",                       stateKeys: ["historyEntity"],                            colKeys: [],                   backendParam: "historyEntity"      },
     { key: "historyDescription",   label: "History Description",   group: "History",        type: "text",         placeholder: "e.g. STP processing...",                        stateKeys: ["historyDescription"],                       colKeys: [],                   backendParam: "historyDescription" },
-    { key: "amountRange",          label: "Amount Range",          group: "Financial",      type: "amount-range", placeholder: null,                                            stateKeys: ["amountFrom","amountTo"],                    colKeys: ["amount","currency"], backendParam: null                 },
-    { key: "seqRange",             label: "Sequence No. Range",    group: "Reference",      type: "seq-range",    placeholder: null,                                            stateKeys: ["seqFrom","seqTo"],                          colKeys: ["sequenceNumber"],   backendParam: null                 },
+    { key: "amountRange",          label: "Amount Range",          group: "Financial",      type: "amount-range", placeholder: null,                                            stateKeys: ["amountFrom","amountTo"],                    colKeys: ["amount","currency"], backendParam: "amountFrom,amountTo"     },
+    { key: "seqRange",             label: "Sequence No. Range",    group: "Reference",      type: "seq-range",    placeholder: null,                                            stateKeys: ["seqFrom","seqTo"],                          colKeys: ["sequenceNumber"],   backendParam: "seqFrom,seqTo"          },
     { key: "freeSearchText",       label: "Free Search Text",      group: "Other",          type: "text-wide",    placeholder: "Searches across all fields...",                 stateKeys: ["freeSearchText"],                           colKeys: [],                   backendParam: "freeSearchText"     },
 ];
 
@@ -342,6 +342,376 @@ function DynSelect({ value, onChange, placeholder, options, loading }) {
 }
 
 // ── Main Search Component ─────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// FloatingModal — defined OUTSIDE Search() so React never unmounts/remounts
+// it on parent state changes. Receives callbacks via props.
+// Anti-blink guarantee: drag and resize ONLY touch DOM style directly.
+// setOpenModals is NEVER called during mousemove — only on mouseup once.
+// ══════════════════════════════════════════════════════════════════════════
+function FloatingModal({
+    modal,
+    processed,
+    onClose,
+    onBringToFront,
+    onPatch,
+    onPrev,
+    onNext,
+    getDisplayFormat,
+    getDisplayType,
+    statusCls,
+    dirClass,
+    formatDirection,
+}) {
+    const boxRef   = useRef(null);
+    const dragRef  = useRef(null);
+    const resRef   = useRef(null);
+    const livePos  = useRef({ x: modal.pos.x,  y: modal.pos.y  });
+    const liveSize = useRef({ w: modal.size.w, h: modal.size.h });
+
+    const { id, msg, tab, pos, size, zIndex, index } = modal;
+    const isFirst = index <= 0;
+    const isLast  = index >= processed.length - 1;
+
+    // Sync live refs only when React state changes (not during drag)
+    useEffect(() => {
+        livePos.current  = { x: pos.x,  y: pos.y  };
+        liveSize.current = { w: size.w, h: size.h };
+    }, [pos.x, pos.y, size.w, size.h]);
+
+    // Direct DOM update — zero React involvement, zero re-renders, zero blink
+    const applyDOM = (x, y, w, h) => {
+        const el = boxRef.current;
+        if (!el) return;
+        el.style.left   = x + "px";
+        el.style.top    = y + "px";
+        el.style.width  = w + "px";
+        el.style.height = h + "px";
+        const body = el.querySelector(".fm-body");
+        if (body) body.style.height = Math.max(80, h - 170) + "px";
+    };
+
+    // ── Drag ─────────────────────────────────────────────────────────────
+    const onDragStart = (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        // z-index update via direct DOM — no React state
+        const el = boxRef.current;
+        if (el) el.style.zIndex = (parseInt(el.style.zIndex || 1000) + 1);
+        dragRef.current = {
+            ox: e.clientX - livePos.current.x,
+            oy: e.clientY - livePos.current.y,
+        };
+        document.body.style.userSelect = "none";
+        document.body.style.cursor     = "grabbing";
+
+        const onMove = (ev) => {
+            if (!dragRef.current) return;
+            const nx = ev.clientX - dragRef.current.ox;
+            const ny = ev.clientY - dragRef.current.oy;
+            const cx = Math.max(0, Math.min(window.innerWidth  - liveSize.current.w, nx));
+            const cy = Math.max(0, Math.min(window.innerHeight - 60, ny));
+            livePos.current = { x: cx, y: cy };
+            applyDOM(cx, cy, liveSize.current.w, liveSize.current.h);
+        };
+        const onUp = () => {
+            if (!dragRef.current) return;
+            dragRef.current = null;
+            document.body.style.userSelect = "";
+            document.body.style.cursor     = "";
+            // Commit final position to React state ONCE on mouseup
+            onPatch(id, { pos: { ...livePos.current } });
+            // Sync z-index to React state once too
+            const z = el ? parseInt(el.style.zIndex) : 1001;
+            onBringToFront(id, z);
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup",   onUp);
+        };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup",   onUp);
+    };
+
+    // ── Resize ────────────────────────────────────────────────────────────
+    const MIN_W = 500, MIN_H = 360;
+
+    const onResizeStart = (e, dir) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        resRef.current = {
+            sx: e.clientX, sy: e.clientY,
+            sw: liveSize.current.w, sh: liveSize.current.h,
+            spx: livePos.current.x, spy: livePos.current.y,
+            dir,
+        };
+        document.body.style.userSelect = "none";
+
+        const onMove = (ev) => {
+            if (!resRef.current) return;
+            const { sx, sy, sw, sh, spx, spy, dir: d } = resRef.current;
+            const dx = ev.clientX - sx, dy = ev.clientY - sy;
+            let nw = sw, nh = sh, nx = spx, ny = spy;
+            if (d.includes("e")) nw = Math.max(MIN_W, sw + dx);
+            if (d.includes("s")) nh = Math.max(MIN_H, sh + dy);
+            if (d.includes("w")) { nw = Math.max(MIN_W, sw - dx); nx = spx + (sw - nw); }
+            if (d.includes("n")) { nh = Math.max(MIN_H, sh - dy); ny = spy + (sh - nh); }
+            liveSize.current = { w: nw, h: nh };
+            livePos.current  = { x: nx, y: ny };
+            applyDOM(nx, ny, nw, nh);
+        };
+        const onUp = () => {
+            if (!resRef.current) return;
+            resRef.current = null;
+            document.body.style.userSelect = "";
+            // Commit ONCE on mouseup
+            onPatch(id, {
+                pos:  { ...livePos.current  },
+                size: { ...liveSize.current },
+            });
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup",   onUp);
+        };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup",   onUp);
+    };
+
+    const handles = [
+        { d:"n",  s:{top:0,left:8,right:8,height:6,cursor:"n-resize"} },
+        { d:"s",  s:{bottom:0,left:8,right:8,height:6,cursor:"s-resize"} },
+        { d:"e",  s:{right:0,top:8,bottom:8,width:6,cursor:"e-resize"} },
+        { d:"w",  s:{left:0,top:8,bottom:8,width:6,cursor:"w-resize"} },
+        { d:"ne", s:{top:0,right:0,width:14,height:14,cursor:"ne-resize"} },
+        { d:"nw", s:{top:0,left:0,width:14,height:14,cursor:"nw-resize"} },
+        { d:"se", s:{bottom:0,right:0,width:14,height:14,cursor:"se-resize"} },
+        { d:"sw", s:{bottom:0,left:0,width:14,height:14,cursor:"sw-resize"} },
+    ];
+
+    const bodyH = Math.max(80, size.h - 170);
+
+    // Bring to front on window click — direct DOM only, no state
+    const handleWindowMouseDown = () => {
+        const el = boxRef.current;
+        if (el) el.style.zIndex = (parseInt(el.style.zIndex || 1000) + 1);
+    };
+
+    return (
+        <div
+            ref={boxRef}
+            className="fm-window"
+            style={{ left: pos.x, top: pos.y, width: size.w, height: size.h, zIndex }}
+            onMouseDown={handleWindowMouseDown}
+        >
+            {handles.map(h => (
+                <div key={h.d} className="fm-resize-handle"
+                    style={{ position:"absolute", zIndex:5, ...h.s }}
+                    onMouseDown={e => onResizeStart(e, h.d)}
+                />
+            ))}
+
+            <div className="txn-header fm-drag-header" onMouseDown={onDragStart}>
+                <div className="txn-header-left">
+                    <div className="txn-type-pill">{getDisplayFormat(msg)}</div>
+                    <div>
+                        <div className="txn-title">{getDisplayType(msg)||"Transaction"}</div>
+                        <div className="txn-subtitle">{msg.date}{msg.time&&<span> · {msg.time}</span>}</div>
+                    </div>
+                </div>
+                <div className="txn-header-right" onMouseDown={e => e.stopPropagation()}>
+                    <span className={"txn-status-badge "+statusCls(msg.status)}>{msg.status||"—"}</span>
+                    <div className="txn-nav">
+                        <button className="txn-nav-btn" onClick={()=>onPrev(id)} disabled={isFirst}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+                        </button>
+                        <span className="txn-nav-count">{index+1}/{processed.length}</span>
+                        <button className="txn-nav-btn" onClick={()=>onNext(id)} disabled={isLast}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                    </div>
+                    <button className="txn-close" onClick={()=>onClose(id)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div className="txn-summary-strip">
+                <div className="txn-summary-item"><span className="txn-sum-label">Sender</span><span className="txn-sum-value mono">{msg.sender||"—"}</span></div>
+                <div className="txn-summary-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+                <div className="txn-summary-item"><span className="txn-sum-label">Receiver</span><span className="txn-sum-value mono">{msg.receiver||"—"}</span></div>
+                <div className="txn-summary-divider"/>
+                <div className="txn-summary-item"><span className="txn-sum-label">Country</span><span className="txn-sum-value">{msg.country||"—"}</span></div>
+                <div className="txn-summary-divider"/>
+                <div className="txn-summary-item"><span className="txn-sum-label">Owner</span><span className="txn-sum-value">{msg.owner||msg.ownerUnit||"—"}</span></div>
+                <div className="txn-summary-divider"/>
+                <div className="txn-summary-item"><span className="txn-sum-label">Network</span><span className="txn-sum-value">{msg.networkProtocol||msg.network||"—"}</span></div>
+                <div className="txn-summary-item"><span className="txn-sum-label">Direction</span><span className={"dir-badge "+dirClass(msg.io||msg.direction)}>{formatDirection(msg.io||msg.direction)}</span></div>
+            </div>
+
+            <div className="txn-tabs">
+                {[{key:"header",label:"Header"},{key:"body",label:"Body"},{key:"history",label:"History"},{key:"details",label:"All Fields"}].map(t=>(
+                    <button key={t.key}
+                        className={"txn-tab"+(tab===t.key?" txn-tab-active":"")}
+                        onClick={()=>onPatch(id,{tab:t.key})}
+                    >
+                        {t.label}
+                        {t.key==="history"&&msg.rawMessage?.historyLines?.length
+                            ?<span className="txn-tab-count">{msg.rawMessage.historyLines.length}</span>:null}
+                    </button>
+                ))}
+            </div>
+
+            <div className="txn-body fm-body" style={{height:bodyH,overflowY:"auto",overflowX:"hidden"}}>
+                {tab==="header"&&<div className="txn-section-wrap">
+                    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:12}}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gray-3)" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                        <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"var(--gray-3)"}}>Parties</span>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 40px 1fr",alignItems:"stretch",marginBottom:24,border:"1px solid var(--gray-6)",borderRadius:8,overflow:"hidden"}}>
+                        <div style={{padding:"16px 18px",background:"var(--white)"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+                                <span style={{width:8,height:8,borderRadius:"50%",background:"#3b82f6",display:"inline-block",flexShrink:0}}/>
+                                <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:"var(--gray-3)"}}>Sender</span>
+                            </div>
+                            <div style={{fontSize:16,fontWeight:700,color:"var(--black)",fontFamily:"var(--mono)",letterSpacing:"0.02em",marginBottom:4}}>{msg.sender||"—"}</div>
+                            <div style={{fontSize:13,color:"var(--gray-2)",marginBottom:4}}>{msg.rawMessage?.senderInstitutionName||""}</div>
+                            <div style={{fontSize:11,color:"var(--gray-4)"}}>Financial Institution</div>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"center",borderLeft:"1px solid var(--gray-6)",borderRight:"1px solid var(--gray-6)",background:"var(--gray-7)"}}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--gray-4)" strokeWidth="1.8" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>
+                        </div>
+                        <div style={{padding:"16px 18px",background:"var(--white)"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+                                <span style={{width:8,height:8,borderRadius:"50%",background:"#22c55e",display:"inline-block",flexShrink:0}}/>
+                                <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:"var(--gray-3)"}}>Receiver</span>
+                            </div>
+                            <div style={{fontSize:16,fontWeight:700,color:"var(--black)",fontFamily:"var(--mono)",letterSpacing:"0.02em",marginBottom:4}}>{msg.receiver||"—"}</div>
+                            <div style={{fontSize:13,color:"var(--gray-2)",marginBottom:4}}>{msg.rawMessage?.receiverInstitutionName||""}</div>
+                            <div style={{fontSize:11,color:"var(--gray-4)"}}>Financial Institution</div>
+                        </div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:12}}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gray-3)" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                        <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"var(--gray-3)"}}>Message Details</span>
+                    </div>
+                    <div style={{border:"1px solid var(--gray-6)",borderRadius:8,overflow:"hidden"}}>
+                        {[
+                            ["MESSAGE CODE",          msg.messageCode||getDisplayType(msg),                false],
+                            ["MESSAGE FORMAT",        msg.rawMessage?.messageFormat||getDisplayFormat(msg),false],
+                            ["REFERENCE",             msg.reference,                                       true],
+                            ["TRANSACTION REFERENCE", msg.transactionReference,                            true],
+                            ["TRANSFER REFERENCE",    msg.transferReference,                               true],
+                            ["MUR",                   msg.mur||msg.userReference,                         true],
+                            ["CREATION DATE",         msg.creationDate||msg.date,                         true],
+                            ["RECEIVED",              msg.receivedDT,                                      true],
+                            ["DELIVERED",             msg.deliveredDate,                                   true],
+                            ["UETR",                  msg.uetr,                                            true],
+                            ["WORKFLOW",              msg.workflow,                                        false],
+                            ["ENVIRONMENT",           msg.environment,                                     false],
+                            ["STATUS MESSAGE",        msg.statusMessage,                                   false],
+                        ].filter(([,v])=>v).map(([label,val,mono],i)=>(
+                            <div key={label} style={{display:"grid",gridTemplateColumns:"200px 1fr",borderBottom:i<12?"1px solid var(--gray-6)":"none",background:i%2===0?"var(--white)":"var(--gray-7)"}}>
+                                <div style={{padding:"11px 16px",fontSize:11,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:"var(--gray-3)",borderRight:"1px solid var(--gray-6)",display:"flex",alignItems:"center"}}>{label}</div>
+                                <div style={{padding:"11px 16px",fontSize:13,color:"var(--black)",fontFamily:mono?"monospace":"inherit",wordBreak:"break-all",display:"flex",alignItems:"center"}}>{val||"—"}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>}
+
+                {tab==="body"&&<div className="txn-section-wrap"><div className="txn-fields-grid">
+                    <div className="txn-field"><span className="txn-field-label">Message Code</span><span className="txn-field-value">{msg.messageCode||getDisplayType(msg)||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Message Type</span><span className="txn-field-value">{getDisplayFormat(msg)||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Network Protocol</span><span className="txn-field-value">{msg.networkProtocol||msg.network||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Network Channel</span><span className="txn-field-value">{msg.networkChannel||msg.backendChannel||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Network Priority</span><span className="txn-field-value">{msg.networkPriority||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Country</span><span className="txn-field-value">{msg.country||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Owner</span><span className="txn-field-value">{msg.owner||msg.ownerUnit||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Workflow</span><span className="txn-field-value">{msg.workflow||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Direction</span><span className={"txn-field-value dir-badge "+dirClass(msg.io||msg.direction)}>{formatDirection(msg.io||msg.direction)}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Status</span><span className={"txn-field-value "+statusCls(msg.status)}>{msg.status||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Phase</span><span className="txn-field-value">{msg.phase||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Action</span><span className="txn-field-value">{msg.action||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Reason</span><span className="txn-field-value">{msg.reason||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Environment</span><span className="txn-field-value">{msg.environment||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Session No.</span><span className="txn-field-value mono">{msg.sessionNumber||"—"}</span></div>
+                    <div className="txn-field"><span className="txn-field-label">Sequence No.</span><span className="txn-field-value mono">{msg.sequenceNumber||"—"}</span></div>
+                </div></div>}
+
+                {tab==="history"&&<div className="txn-section-wrap">
+                    {(()=>{
+                        const lines = msg.rawMessage?.historyLines || [];
+                        if(lines.length===0) return <div className="adv-empty-state"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--gray-4)" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><p>No history lines available</p></div>;
+                        return (
+                            <div style={{overflowX:"auto"}}>
+                                <table className="history-table" style={{width:"max-content",minWidth:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto"}}>
+                                    <thead style={{position:"sticky",top:0,zIndex:10}}>
+                                        <tr style={{background:"var(--gray-7)",borderBottom:"2px solid var(--gray-5)"}}>
+                                            <th style={{padding:"12px 16px",textAlign:"center",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:50}}>#</th>
+                                            <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:180}}>Date and Time</th>
+                                            <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:120}}>Entity</th>
+                                            <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:120}}>Action</th>
+                                            <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:110}}>Phase</th>
+                                            <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:110}}>Reason</th>
+                                            <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:140}}>Channel</th>
+                                            <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:300}}>Description</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {lines.map((line,idx)=>(
+                                            <tr key={idx} style={{borderBottom:"1px solid var(--gray-6)",background:idx%2===0?"var(--white)":"var(--gray-7)"}}>
+                                                <td style={{padding:"12px 16px",color:"var(--gray-2)",fontWeight:600,textAlign:"center"}}>{line.index||idx+1}</td>
+                                                <td style={{padding:"12px 16px",fontFamily:"monospace",fontSize:12,color:"var(--black-3)",whiteSpace:"nowrap"}}>{line.historyDate?new Date(line.historyDate).toLocaleString("en-US",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:true}):"—"}</td>
+                                                <td style={{padding:"12px 16px",whiteSpace:"nowrap"}}>{line.entity?<span className="txn-status-badge" style={{fontSize:11,padding:"4px 10px"}}>{line.entity}</span>:"—"}</td>
+                                                <td style={{padding:"12px 16px",whiteSpace:"nowrap"}}>{line.action?<span className={"txn-status-badge "+(line.action==="Distributed"||line.action==="Processed"||line.action==="Deliver"?"badge-ok":line.action==="Rejected"||line.action==="Failed"?"badge-bypass":"badge-pending")} style={{fontSize:11,padding:"4px 10px"}}>{line.action}</span>:"—"}</td>
+                                                <td style={{padding:"12px 16px",color:"var(--gray-1)",whiteSpace:"nowrap"}}>{line.phase||"—"}</td>
+                                                <td style={{padding:"12px 16px",color:"var(--gray-1)",whiteSpace:"nowrap"}}>{line.reason?<span style={{padding:"4px 10px",borderRadius:4,fontSize:11,fontWeight:600,background:line.reason==="OK"||line.reason==="VALIDATION"?"var(--ok-light)":line.reason==="NOK"||line.reason==="TIMEOUT"||line.reason==="DUPLICATE"?"var(--danger-light)":"var(--gray-6)",color:line.reason==="OK"||line.reason==="VALIDATION"?"var(--ok)":line.reason==="NOK"||line.reason==="TIMEOUT"||line.reason==="DUPLICATE"?"var(--danger)":"var(--gray-2)"}}>{line.reason}</span>:"—"}</td>
+                                                <td style={{padding:"12px 16px",fontFamily:"monospace",fontSize:12,color:"var(--gray-1)",whiteSpace:"nowrap"}}>{line.channel||"—"}</td>
+                                                <td style={{padding:"12px 16px",color:"var(--black-3)",lineHeight:1.6,minWidth:300}}>{line.description||"—"}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        );
+                    })()}
+                </div>}
+
+                {tab==="details"&&<div className="txn-section-wrap">
+                    {(()=>{
+                        const raw=msg.rawMessage||{};
+                        const ALL_FIELDS=[["id","ID"],["source","SOURCE"],["io","IO"],["status","STATUS"],["phase","PHASE"],["action","ACTION"],["reason","REASON"],["messageType","MESSAGETYPE"],["messageCode","MESSAGECODE"],["messageFormat","MESSAGEFORMAT"],["reference","REFERENCE"],["transactionReference","TRANSACTIONREFERENCE"],["transferReference","TRANSFERREFERENCE"],["relatedReference","RELATEDREFERENCE"],["mur","MUR"],["uetr","UETR"],["sender","SENDER"],["receiver","RECEIVER"],["country","COUNTRY"],["networkProtocol","NETWORKPROTOCOL"],["networkChannel","NETWORKCHANNEL"],["networkPriority","NETWORKPRIORITY"],["workflow","WORKFLOW"],["owner","OWNER"],["environment","ENVIRONMENT"],["sessionNumber","SESSIONNUMBER"],["sequenceNumber","SEQUENCENUMBER"],["creationDate","CREATIONDATE"],["receivedDT","RECEIVEDDT"],["deliveredDate","DELIVEREDDATE"],["statusDate","STATUSDATE"],["statusMessage","STATUSMESSAGE"],["ccy","CCY"],["amount","AMOUNT"]];
+                        const shown=new Set(),ordered=[];
+                        ALL_FIELDS.forEach(([k,label])=>{const val=raw[k]??msg[k];if(val!==undefined&&val!==null&&val!==""){ordered.push({key:k,label,val});shown.add(k);}});
+                        Object.entries(raw).forEach(([k,v])=>{if(!shown.has(k)&&k!=="historyLines"&&v!==undefined&&v!==null&&v!=="")ordered.push({key:k,label:k.toUpperCase(),val:v});});
+                        if(!ordered.length) return <div style={{padding:40,textAlign:"center",color:"var(--gray-3)"}}><p>No fields available</p></div>;
+                        const monoKeys=new Set(["id","mur","uetr","reference","transactionReference","transferReference","relatedReference","creationDate","receivedDT","deliveredDate","statusDate","sessionNumber","sequenceNumber"]);
+                        const renderVal=(key,val)=>{
+                            if(key==="status") return <span className={statusCls(String(val))}>{String(val)}</span>;
+                            if(key==="io") return <span className={"dir-badge "+dirClass(String(val))}>{formatDirection(String(val))}</span>;
+                            if(typeof val==="object") return <span style={{fontFamily:"monospace",fontSize:12,wordBreak:"break-all"}}>{JSON.stringify(val)}</span>;
+                            return <span style={monoKeys.has(key)?{fontFamily:"monospace",fontSize:13,wordBreak:"break-all"}:{wordBreak:"break-word"}}>{String(val)}</span>;
+                        };
+                        const pairs=[];for(let i=0;i<ordered.length;i+=2)pairs.push([ordered[i],ordered[i+1]||null]);
+                        return (
+                            <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                                {pairs.map((pair,pi)=>(
+                                    <div key={pi} style={{display:"grid",gridTemplateColumns:"1fr 1fr",borderBottom:"1px solid var(--gray-6)"}}>
+                                        {pair.map((item,ci)=>item?(
+                                            <div key={item.key} style={{padding:"14px 20px",borderRight:ci===0?"1px solid var(--gray-6)":"none",background:"var(--white)"}}>
+                                                <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",color:"var(--gray-3)",textTransform:"uppercase",marginBottom:5}}>{item.label}</div>
+                                                <div style={{fontSize:13,color:"var(--black)",lineHeight:1.5}}>{renderVal(item.key,item.val)}</div>
+                                            </div>
+                                        ):(
+                                            <div key={"e"+pi+ci} style={{padding:"14px 20px",background:"var(--white)"}}/>
+                                        ))}
+                                    </div>
+                                ))}
+                            </div>
+                        );
+                    })()}
+                </div>}
+            </div>
+        </div>
+    );
+}
+
 function Search() {
     const { token } = useAuth();
 
@@ -379,9 +749,10 @@ function Search() {
     const [showExportMenu,  setShowExportMenu]  = useState(false);
     const [exportScope,     setExportScope]     = useState("all");
     const [toastMsg,        setToastMsg]        = useState(null);
-    const [modalMsg,        setModalMsg]        = useState(null);
-    const [modalTab,        setModalTab]        = useState("header");
-    const [modalIndex,      setModalIndex]      = useState(null);
+    // ── Multi-window modal state ──────────────────────────────────────
+    const [openModals,   setOpenModals]   = useState([]);
+    const topZRef  = useRef(1000);
+    const modalIdRef = useRef(0);
     const [serverTotal,       setServerTotal]      = useState(0);
     const [serverTotalPages,  setServerTotalPages] = useState(0);
     const [isExporting,       setIsExporting]      = useState(false);
@@ -481,8 +852,7 @@ function Search() {
     // Keyboard shortcuts (modal nav + escape)
     useEffect(()=>{
         const onKey=(e)=>{
-            if(e.key==="Escape"){ setModalMsg(null); setShowFieldPicker(false); }
-            if(modalMsg){ if(e.key==="ArrowLeft") goModalPrev(); if(e.key==="ArrowRight") goModalNext(); }
+            if(e.key==="Escape"){ setShowFieldPicker(false); }
         };
         document.addEventListener("keydown",onKey);
         return ()=>document.removeEventListener("keydown",onKey);
@@ -588,6 +958,12 @@ function Search() {
 
         // Financial
         if(s.currency)        params.set("ccy",                  s.currency);
+        // Amount range
+        if(s.amountFrom && !isNaN(parseFloat(s.amountFrom))) params.set("amountFrom", parseFloat(s.amountFrom));
+        if(s.amountTo   && !isNaN(parseFloat(s.amountTo)))   params.set("amountTo",   parseFloat(s.amountTo));
+        // Sequence number range
+        if(s.seqFrom && !isNaN(parseInt(s.seqFrom, 10))) params.set("seqFrom", parseInt(s.seqFrom, 10));
+        if(s.seqTo   && !isNaN(parseInt(s.seqTo,   10))) params.set("seqTo",   parseInt(s.seqTo,   10));
 
         // References (all regex-matched on backend)
         if(s.reference)              params.set("reference",            s.reference);
@@ -653,11 +1029,7 @@ function Search() {
 
     const handleKeyDown=(e)=>{ if(e.key==="Enter") handleSearch(); };
 
-    const openModal=(msg,e,idx)=>{ e.stopPropagation(); setModalMsg(msg); setModalTab("header"); setModalIndex(indexOfFirst+idx); };
-    const closeModal=()=>{ setModalMsg(null); setModalIndex(null); };
-
-    const goModalPrev=()=>{ if(modalIndex===null||modalIndex<=0) return; setModalMsg(processed[modalIndex-1]); setModalIndex(modalIndex-1); setModalTab("header"); };
-    const goModalNext=()=>{ if(modalIndex===null||modalIndex>=processed.length-1) return; setModalMsg(processed[modalIndex+1]); setModalIndex(modalIndex+1); setModalTab("header"); };
+    // openModal and helpers defined in multi-window system (injected before return)
 
     const getReference=(msg)=>msg.rfkReference||msg.userReference||msg.messageReference||`REF-${String(msg.uetr||"").slice(0,8).toUpperCase()||"UNKNOWN"}`;
 
@@ -799,8 +1171,7 @@ function Search() {
     const activeFilterCount=Object.values(searchState).filter(v=>v!=="").length;
     const extraWidth=180+(shownCols.length>7?(shownCols.length-7)*130:0);
     const scopeTabs=[{key:"all",label:"All",count:serverTotal},{key:"page",label:"This Page",count:currentRecords.length},{key:"selected",label:"Selected",count:selectedRows.size}];
-    const isFirstMsg=modalIndex===null||modalIndex<=0;
-    const isLastMsg =modalIndex===null||modalIndex>=processed.length-1;
+    // isFirstMsg/isLastMsg handled per-modal in multi-window system
 
     // ── Advanced field renderer ────────────────────────────────────────────────
     const renderAdvancedField = (fieldKey) => {
@@ -912,6 +1283,70 @@ function Search() {
         if (items.length) acc[g]=items;
         return acc;
     },{});
+
+
+    // ══════════════════════════════════════════════════════════════════
+    // MULTI-WINDOW MODAL SYSTEM
+    // ══════════════════════════════════════════════════════════════════
+
+    // Notify shell-app TabBar to lock/unlock tab switching
+    const hasModals = openModals.length > 0;
+    useEffect(() => {
+        window.dispatchEvent(
+            new CustomEvent("swift:modalsOpen", { detail: { open: openModals.length > 0 } })
+        );
+    }, [openModals.length]);
+
+    // Bring modal to front
+    // Called only on mouseup to sync DOM z-index back to React state
+    const bringToFront = useCallback((id, z) => {
+        if (z) topZRef.current = Math.max(topZRef.current, z);
+        else   topZRef.current += 1;
+        const finalZ = z || topZRef.current;
+        setOpenModals(ms => ms.map(m => m.id === id ? { ...m, zIndex: finalZ } : m));
+    }, []);
+
+    // Open a new popup - each click on a different ref opens a new window
+    const openModal = (msg, e, absIdx) => {
+        e.stopPropagation();
+        const id    = ++modalIdRef.current;
+        const count = openModals.length;
+        const vw    = window.innerWidth;
+        const vh    = window.innerHeight;
+        const w     = Math.min(880, vw - 80);
+        const h     = Math.min(680, vh - 80);
+        const off   = (count % 8) * 30;
+        const x     = Math.max(20, Math.min(vw - w - 20, (vw - w) / 2 + off));
+        const y     = Math.max(20, Math.min(vh - h - 20, (vh - h) / 2 + off));
+        topZRef.current += 1;
+        setOpenModals(ms => [...ms, {
+            id, msg, tab: "header",
+            pos: { x, y }, size: { w, h },
+            zIndex: topZRef.current, index: absIdx
+        }]);
+    };
+
+    const closeModal     = (id) => setOpenModals(ms => ms.filter(m => m.id !== id));
+    const closeAllModals = ()    => setOpenModals([]);
+
+    // Used for tab changes and committing drag/resize on mouseup
+    const patchModal = useCallback((id, patch) =>
+        setOpenModals(ms => ms.map(m => m.id === id ? { ...m, ...patch } : m))
+    , []);
+
+    const goModalPrev = useCallback((id) =>
+        setOpenModals(ms => ms.map(m => {
+            if (m.id !== id || m.index <= 0) return m;
+            return { ...m, msg: processed[m.index - 1], index: m.index - 1, tab: "header" };
+        }))
+    , [processed]);
+
+    const goModalNext = useCallback((id) =>
+        setOpenModals(ms => ms.map(m => {
+            if (m.id !== id || m.index >= processed.length - 1) return m;
+            return { ...m, msg: processed[m.index + 1], index: m.index + 1, tab: "header" };
+        }))
+    , [processed]);
 
     // ── Render ────────────────────────────────────────────────────────────────
     return (
@@ -1253,288 +1688,32 @@ function Search() {
                 </div>}
             </>)}
 
-            {/* ── Detail Modal ── */}
-            {modalMsg&&(
-                <div className="modal-overlay" onClick={closeModal}>
-                    <div className="modal-box" onClick={e=>e.stopPropagation()}>
-                        <div className="txn-header">
-                            <div className="txn-header-left"><div className="txn-type-pill">{getDisplayFormat(modalMsg)}</div><div><div className="txn-title">{getDisplayType(modalMsg)||"Transaction"}</div><div className="txn-subtitle">{modalMsg.date}{modalMsg.time&&<span> · {modalMsg.time}</span>}</div></div></div>
-                            <div className="txn-header-right">
-                                <span className={`txn-status-badge ${statusCls(modalMsg.status)}`}>{modalMsg.status||"—"}</span>
-                                <div className="txn-nav"><button className="txn-nav-btn" onClick={goModalPrev} disabled={isFirstMsg}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg></button><span className="txn-nav-count">{modalIndex+1}/{processed.length}</span><button className="txn-nav-btn" onClick={goModalNext} disabled={isLastMsg}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg></button></div>
-                                <button className="txn-close" onClick={closeModal}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-                            </div>
-                        </div>
-                        <div className="txn-summary-strip">
-                            <div className="txn-summary-item"><span className="txn-sum-label">Sender</span><span className="txn-sum-value mono">{modalMsg.sender||"—"}</span></div>
-                            <div className="txn-summary-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
-                            <div className="txn-summary-item"><span className="txn-sum-label">Receiver</span><span className="txn-sum-value mono">{modalMsg.receiver||"—"}</span></div>
-                            <div className="txn-summary-divider"/>
-                            <div className="txn-summary-item"><span className="txn-sum-label">Country</span><span className="txn-sum-value">{modalMsg.country||"—"}</span></div>
-                            <div className="txn-summary-divider"/>
-                            <div className="txn-summary-item"><span className="txn-sum-label">Owner</span><span className="txn-sum-value">{modalMsg.owner||modalMsg.ownerUnit||"—"}</span></div>
-                            <div className="txn-summary-divider"/>
-                            <div className="txn-summary-item"><span className="txn-sum-label">Network</span><span className="txn-sum-value">{modalMsg.networkProtocol||modalMsg.network||"—"}</span></div>
-                            <div className="txn-summary-item"><span className="txn-sum-label">Direction</span><span className={`dir-badge ${dirClass(modalMsg.io||modalMsg.direction)}`}>{formatDirection(modalMsg.io||modalMsg.direction)}</span></div>
-                        </div>
-                        <div className="txn-tabs">{[{key:"header",label:"Header"},{key:"body",label:"Body"},{key:"history",label:"History"},{key:"details",label:"All Fields"}].map(t=>(<button key={t.key} className={`txn-tab${modalTab===t.key?" txn-tab-active":""}`} onClick={()=>setModalTab(t.key)}>{t.label}{t.key==="history"&&modalMsg.rawMessage?.historyLines?.length?<span className="txn-tab-count">{modalMsg.rawMessage.historyLines.length}</span>:null}</button>))}</div>
-                        <div className="txn-body">
-                            {modalTab==="header"&&<div className="txn-section-wrap">
-
-                                {/* ── PARTIES ── */}
-                                <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:12}}>
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gray-3)" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-                                    <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"var(--gray-3)"}}>Parties</span>
-                                </div>
-
-                                <div style={{display:"grid",gridTemplateColumns:"1fr 40px 1fr",alignItems:"stretch",marginBottom:24,border:"1px solid var(--gray-6)",borderRadius:8,overflow:"hidden"}}>
-                                    {/* Sender card */}
-                                    <div style={{padding:"16px 18px",background:"var(--white)"}}>
-                                        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
-                                            <span style={{width:8,height:8,borderRadius:"50%",background:"#3b82f6",display:"inline-block",flexShrink:0}}/>
-                                            <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:"var(--gray-3)"}}>Sender</span>
-                                        </div>
-                                        <div style={{fontSize:16,fontWeight:700,color:"var(--black)",fontFamily:"var(--mono)",letterSpacing:"0.02em",marginBottom:4}}>{modalMsg.sender||"—"}</div>
-                                        <div style={{fontSize:13,color:"var(--gray-2)",marginBottom:4}}>{modalMsg.rawMessage?.senderInstitutionName||""}</div>
-                                        <div style={{fontSize:11,color:"var(--gray-4)"}}>Financial Institution</div>
-                                    </div>
-                                    {/* Arrow divider */}
-                                    <div style={{display:"flex",alignItems:"center",justifyContent:"center",borderLeft:"1px solid var(--gray-6)",borderRight:"1px solid var(--gray-6)",background:"var(--gray-7)"}}>
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--gray-4)" strokeWidth="1.8" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>
-                                    </div>
-                                    {/* Receiver card */}
-                                    <div style={{padding:"16px 18px",background:"var(--white)"}}>
-                                        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
-                                            <span style={{width:8,height:8,borderRadius:"50%",background:"#22c55e",display:"inline-block",flexShrink:0}}/>
-                                            <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:"var(--gray-3)"}}>Receiver</span>
-                                        </div>
-                                        <div style={{fontSize:16,fontWeight:700,color:"var(--black)",fontFamily:"var(--mono)",letterSpacing:"0.02em",marginBottom:4}}>{modalMsg.receiver||"—"}</div>
-                                        <div style={{fontSize:13,color:"var(--gray-2)",marginBottom:4}}>{modalMsg.rawMessage?.receiverInstitutionName||""}</div>
-                                        <div style={{fontSize:11,color:"var(--gray-4)"}}>Financial Institution</div>
-                                    </div>
-                                </div>
-
-                                {/* ── MESSAGE DETAILS ── */}
-                                <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:12}}>
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gray-3)" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-                                    <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"var(--gray-3)"}}>Message Details</span>
-                                </div>
-
-                                <div style={{border:"1px solid var(--gray-6)",borderRadius:8,overflow:"hidden"}}>
-                                    {[
-                                        ["MESSAGE CODE",          modalMsg.messageCode||getDisplayType(modalMsg),           false],
-                                        ["MESSAGE FORMAT",        modalMsg.rawMessage?.messageFormat||getDisplayFormat(modalMsg), false],
-                                        ["REFERENCE",             modalMsg.reference,                                        true],
-                                        ["TRANSACTION REFERENCE", modalMsg.transactionReference,                             true],
-                                        ["TRANSFER REFERENCE",    modalMsg.transferReference,                                true],
-                                        ["MUR",                   modalMsg.mur||modalMsg.userReference,                     true],
-                                        ["CREATION DATE",         modalMsg.creationDate||modalMsg.date,                     true],
-                                        ["RECEIVED",              modalMsg.receivedDT,                                      true],
-                                        ["DELIVERED",             modalMsg.deliveredDate,                                   true],
-                                        ["UETR",                  modalMsg.uetr,                                            true],
-                                        ["WORKFLOW",              modalMsg.workflow,                                        false],
-                                        ["ENVIRONMENT",           modalMsg.environment,                                     false],
-                                        ["STATUS MESSAGE",        modalMsg.statusMessage,                                   false],
-                                    ].filter(([,v])=>v).map(([label, val, mono], i) => (
-                                        <div key={label} style={{
-                                            display:"grid",
-                                            gridTemplateColumns:"200px 1fr",
-                                            borderBottom: i < 12 ? "1px solid var(--gray-6)" : "none",
-                                            background: i%2===0 ? "var(--white)" : "var(--gray-7)",
-                                        }}>
-                                            <div style={{padding:"11px 16px",fontSize:11,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:"var(--gray-3)",borderRight:"1px solid var(--gray-6)",display:"flex",alignItems:"center"}}>
-                                                {label}
-                                            </div>
-                                            <div style={{padding:"11px 16px",fontSize:13,color:"var(--black)",fontFamily:mono?"monospace":"inherit",wordBreak:"break-all",display:"flex",alignItems:"center"}}>
-                                                {val||"—"}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-
-                            </div>}
-                            {modalTab==="body"&&<div className="txn-section-wrap"><div className="txn-fields-grid">
-                                <div className="txn-field"><span className="txn-field-label">Message Code</span><span className="txn-field-value">{modalMsg.messageCode||getDisplayType(modalMsg)||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Message Type</span><span className="txn-field-value">{getDisplayFormat(modalMsg)||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Network Protocol</span><span className="txn-field-value">{modalMsg.networkProtocol||modalMsg.network||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Network Channel</span><span className="txn-field-value">{modalMsg.networkChannel||modalMsg.backendChannel||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Network Priority</span><span className="txn-field-value">{modalMsg.networkPriority||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Country</span><span className="txn-field-value">{modalMsg.country||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Owner</span><span className="txn-field-value">{modalMsg.owner||modalMsg.ownerUnit||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Workflow</span><span className="txn-field-value">{modalMsg.workflow||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Direction</span><span className={`txn-field-value dir-badge ${dirClass(modalMsg.io||modalMsg.direction)}`}>{formatDirection(modalMsg.io||modalMsg.direction)}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Status</span><span className={`txn-field-value ${statusCls(modalMsg.status)}`}>{modalMsg.status||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Phase</span><span className="txn-field-value">{modalMsg.phase||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Action</span><span className="txn-field-value">{modalMsg.action||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Reason</span><span className="txn-field-value">{modalMsg.reason||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Environment</span><span className="txn-field-value">{modalMsg.environment||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Session No.</span><span className="txn-field-value mono">{modalMsg.sessionNumber||"—"}</span></div>
-                                <div className="txn-field"><span className="txn-field-label">Sequence No.</span><span className="txn-field-value mono">{modalMsg.sequenceNumber||"—"}</span></div>
-                            </div></div>}
-                            {modalTab==="history"&&<div className="txn-section-wrap">
-                                {(()=>{
-                                    const lines = modalMsg.rawMessage?.historyLines || [];
-                                    if(lines.length===0) return <div className="adv-empty-state"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--gray-4)" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><p>No history lines available</p></div>;
-                                    return (
-                                        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"500px"}}>
-                                            <table className="history-table" style={{width:"max-content",minWidth:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto"}}>
-                                                <thead style={{position:"sticky",top:0,zIndex:10}}>
-                                                    <tr style={{background:"var(--gray-7)",borderBottom:"2px solid var(--gray-5)"}}>
-                                                        <th style={{padding:"12px 16px",textAlign:"center",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:50}}>#</th>
-                                                        <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:180}}>Date & Time</th>
-                                                        <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:120}}>Entity</th>
-                                                        <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:120}}>Action</th>
-                                                        <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:110}}>Phase</th>
-                                                        <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:110}}>Reason</th>
-                                                        <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:140}}>Channel</th>
-                                                        <th style={{padding:"12px 16px",textAlign:"left",fontWeight:600,color:"var(--gray-2)",whiteSpace:"nowrap",minWidth:300}}>Description</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {lines.map((line, idx)=>(
-                                                        <tr key={idx} style={{borderBottom:"1px solid var(--gray-6)",background:idx%2===0?"var(--white)":"var(--gray-7)"}}>
-                                                            <td style={{padding:"12px 16px",color:"var(--gray-2)",fontWeight:600,textAlign:"center"}}>{line.index || idx+1}</td>
-                                                            <td style={{padding:"12px 16px",fontFamily:"monospace",fontSize:12,color:"var(--black-3)",whiteSpace:"nowrap"}}>
-                                                                {line.historyDate ? new Date(line.historyDate).toLocaleString('en-US', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true }) : "—"}
-                                                            </td>
-                                                            <td style={{padding:"12px 16px",whiteSpace:"nowrap"}}>
-                                                                {line.entity ? <span className="txn-status-badge" style={{fontSize:11,padding:"4px 10px",whiteSpace:"nowrap"}}>{line.entity}</span> : "—"}
-                                                            </td>
-                                                            <td style={{padding:"12px 16px",whiteSpace:"nowrap"}}>
-                                                                {line.action ? (
-                                                                    <span className={`txn-status-badge ${line.action==="Distributed"||line.action==="Processed"||line.action==="Deliver"?"badge-ok":line.action==="Rejected"||line.action==="Failed"?"badge-bypass":"badge-pending"}`} style={{fontSize:11,padding:"4px 10px",whiteSpace:"nowrap"}}>
-                                                                        {line.action}
-                                                                    </span>
-                                                                ) : "—"}
-                                                            </td>
-                                                            <td style={{padding:"12px 16px",color:"var(--gray-1)",whiteSpace:"nowrap"}}>{line.phase || "—"}</td>
-                                                            <td style={{padding:"12px 16px",color:"var(--gray-1)",whiteSpace:"nowrap"}}>
-                                                                {line.reason ? (
-                                                                    <span style={{padding:"4px 10px",borderRadius:4,fontSize:11,fontWeight:600,whiteSpace:"nowrap",background:line.reason==="OK"||line.reason==="VALIDATION"?"var(--ok-light)":line.reason==="NOK"||line.reason==="TIMEOUT"||line.reason==="DUPLICATE"?"var(--danger-light)":"var(--gray-6)",color:line.reason==="OK"||line.reason==="VALIDATION"?"var(--ok)":line.reason==="NOK"||line.reason==="TIMEOUT"||line.reason==="DUPLICATE"?"var(--danger)":"var(--gray-2)"}}>
-                                                                        {line.reason}
-                                                                    </span>
-                                                                ) : "—"}
-                                                            </td>
-                                                            <td style={{padding:"12px 16px",fontFamily:"monospace",fontSize:12,color:"var(--gray-1)",whiteSpace:"nowrap"}}>{line.channel || "—"}</td>
-                                                            <td style={{padding:"12px 16px",color:"var(--black-3)",lineHeight:1.6,minWidth:300}}>{line.description || "—"}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    );
-                                })()}
-                            </div>}
-                            {modalTab==="details"&&<div className="txn-section-wrap">
-                                {(()=>{
-                                    const raw = modalMsg.rawMessage || {};
-                                    // Ordered field list — matches the sequence visible in the screenshot
-                                    const ALL_FIELDS = [
-                                        ["id",                   "ID"],
-                                        ["source",               "SOURCE"],
-                                        ["io",                   "IO"],
-                                        ["status",               "STATUS"],
-                                        ["phase",                "PHASE"],
-                                        ["action",               "ACTION"],
-                                        ["reason",               "REASON"],
-                                        ["messageType",          "MESSAGETYPE"],
-                                        ["messageCode",          "MESSAGECODE"],
-                                        ["messageFormat",        "MESSAGEFORMAT"],
-                                        ["reference",            "REFERENCE"],
-                                        ["transactionReference", "TRANSACTIONREFERENCE"],
-                                        ["transferReference",    "TRANSFERREFERENCE"],
-                                        ["relatedReference",     "RELATEDREFERENCE"],
-                                        ["mur",                  "MUR"],
-                                        ["uetr",                 "UETR"],
-                                        ["sender",               "SENDER"],
-                                        ["receiver",             "RECEIVER"],
-                                        ["country",              "COUNTRY"],
-                                        ["networkProtocol",      "NETWORKPROTOCOL"],
-                                        ["networkChannel",       "NETWORKCHANNEL"],
-                                        ["networkPriority",      "NETWORKPRIORITY"],
-                                        ["workflow",             "WORKFLOW"],
-                                        ["owner",                "OWNER"],
-                                        ["environment",          "ENVIRONMENT"],
-                                        ["sessionNumber",        "SESSIONNUMBER"],
-                                        ["sequenceNumber",       "SEQUENCENUMBER"],
-                                        ["creationDate",         "CREATIONDATE"],
-                                        ["receivedDT",           "RECEIVEDDT"],
-                                        ["deliveredDate",        "DELIVEREDDATE"],
-                                        ["statusDate",           "STATUSDATE"],
-                                        ["statusMessage",        "STATUSMESSAGE"],
-                                        ["ccy",                  "CCY"],
-                                        ["amount",               "AMOUNT"],
-                                    ];
-                                    const shown = new Set();
-                                    const ordered = [];
-                                    ALL_FIELDS.forEach(([k, label]) => {
-                                        const val = raw[k] ?? modalMsg[k];
-                                        if (val !== undefined && val !== null && val !== "") {
-                                            ordered.push({ key: k, label, val });
-                                            shown.add(k);
-                                        }
-                                    });
-                                    // Append any extra fields not in the known list
-                                    Object.entries(raw).forEach(([k, v]) => {
-                                        if (!shown.has(k) && k !== "historyLines" && v !== undefined && v !== null && v !== "")
-                                            ordered.push({ key: k, label: k.toUpperCase(), val: v });
-                                    });
-                                    if (!ordered.length) return (
-                                        <div style={{padding:40,textAlign:"center",color:"var(--gray-3)"}}>
-                                            <p>No fields available</p>
-                                        </div>
-                                    );
-
-                                    // Pair up items into rows of 2 (matching screenshot layout)
-                                    const monoKeys = new Set(["id","mur","uetr","reference","transactionReference","transferReference","relatedReference","creationDate","receivedDT","deliveredDate","statusDate","sessionNumber","sequenceNumber"]);
-
-                                    const renderVal = (key, val) => {
-                                        if (key === "status") return <span className={statusCls(String(val))}>{String(val)}</span>;
-                                        if (key === "io")     return <span className={`dir-badge ${dirClass(String(val))}`}>{formatDirection(String(val))}</span>;
-                                        if (typeof val === "object") return <span style={{fontFamily:"monospace",fontSize:12,wordBreak:"break-all"}}>{JSON.stringify(val)}</span>;
-                                        return <span style={monoKeys.has(key)?{fontFamily:"monospace",fontSize:13,wordBreak:"break-all"}:{wordBreak:"break-word"}}>{String(val)}</span>;
-                                    };
-
-                                    const pairs = [];
-                                    for (let i = 0; i < ordered.length; i += 2) {
-                                        pairs.push([ordered[i], ordered[i+1] || null]);
-                                    }
-
-                                    return (
-                                        <div style={{display:"flex",flexDirection:"column",gap:0}}>
-                                            {pairs.map((pair, pi) => (
-                                                <div key={pi} style={{display:"grid",gridTemplateColumns:"1fr 1fr",borderBottom:"1px solid var(--gray-6)"}}>
-                                                    {pair.map((item, ci) => item ? (
-                                                        <div key={item.key} style={{
-                                                            padding:"14px 20px",
-                                                            borderRight: ci === 0 ? "1px solid var(--gray-6)" : "none",
-                                                            background:"var(--white)",
-                                                        }}>
-                                                            <div style={{
-                                                                fontSize:10,
-                                                                fontWeight:700,
-                                                                letterSpacing:"0.07em",
-                                                                color:"var(--gray-3)",
-                                                                textTransform:"uppercase",
-                                                                marginBottom:5,
-                                                            }}>
-                                                                {item.label}
-                                                            </div>
-                                                            <div style={{fontSize:13,color:"var(--black)",lineHeight:1.5}}>
-                                                                {renderVal(item.key, item.val)}
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div key={`empty-${pi}-${ci}`} style={{padding:"14px 20px",background:"var(--white)"}}/>
-                                                    ))}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    );
-                                })()}
-                            </div>}
-                        </div>
-                    </div>
+            {/* ── Multi-Window Floating Modals ── */}
+            {openModals.length > 0 && (
+                <div className="fm-layer">
+                    {openModals.map(modal => (
+                        <FloatingModal
+                            key={modal.id}
+                            modal={modal}
+                            processed={processed}
+                            onClose={closeModal}
+                            onBringToFront={bringToFront}
+                            onPatch={patchModal}
+                            onPrev={goModalPrev}
+                            onNext={goModalNext}
+                            getDisplayFormat={getDisplayFormat}
+                            getDisplayType={getDisplayType}
+                            statusCls={statusCls}
+                            dirClass={dirClass}
+                            formatDirection={formatDirection}
+                        />
+                    ))}
+                    {openModals.length > 1 && (
+                        <button className="fm-close-all" onClick={closeAllModals}>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            Close all ({openModals.length} open)
+                        </button>
+                    )}
                 </div>
             )}
         </div>
